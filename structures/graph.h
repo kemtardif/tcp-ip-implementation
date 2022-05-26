@@ -76,7 +76,5 @@ struct graph_node *find_node_by_name(struct graph *graph, char *name);
 int next_available_interface_slot(struct graph_node *node);
 //Return interface by name, or NULL otherwise
 struct interface *find_interface_by_name(struct graph_node *node, char *name);
-//Return node in graph by name if it exists, otherwise return NULL
-struct graph_node *find_node_by_name(struct graph *graph, char *name);
 #endif 
 
