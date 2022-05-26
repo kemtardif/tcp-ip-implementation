@@ -1,6 +1,0 @@
-make --dry-run --always-make --keep-going --print-directory
-make: Entering directory '/home/kemtardif/tcp-ip-implementation'
-make: Leaving directory '/home/kemtardif/tcp-ip-implementation'
- 
-Makefile:6: *** recipe commences before first target.  Stop.
-
