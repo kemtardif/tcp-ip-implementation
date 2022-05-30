@@ -1,9 +1,12 @@
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
+#include <sys/types.h>
 #include "dll.h"
+#include "net.h"
 #include "graph.h"
 
-struct graph_node *get_attached_node(struct interface *interface)
+struct interface *get_attached_interface(struct interface *interface)
 {
     struct graph_link *link;
 
@@ -13,9 +16,9 @@ struct graph_node *get_attached_node(struct interface *interface)
     link = interface->link;
 
     if(link->if_1 == interface)
-        return link->if_2->node;
+        return link->if_2;
     else
-        return link->if_1->node;
+        return link->if_1;
 
 };
 int next_available_interface_slot(struct graph_node *node)
@@ -132,6 +135,8 @@ struct graph_node *add_node(struct graph *graph, char *name)
         return NULL;
     }
 
+    node_net_init(&(new_graph_node->node_net));
+
     strncpy(new_graph_node->name, name, ND_NAME_SIZE);
     new_graph_node->name[ND_NAME_SIZE] = '\0';
 
@@ -142,27 +147,6 @@ struct graph_node *add_node(struct graph *graph, char *name)
     add_to_list(graph->nodes, new_list_item);
 
     return new_graph_node;
-}
-
-void remove_interface(struct interface *interface)
-{
-    struct graph_link *link;
-    if(!interface)
-        return;
-    remove_link(interface->link);
-    free(interface);   
-}
-
-
-void remove_link(struct graph_link *link)
-{
-    if(!link) 
-        return;
-    //Disconnonnect attached interface;
-    link->if_1->link = NULL;
-    link->if_2->link = NULL;
-
-    free(link);
 }
 
 void remove_node(struct graph *graph, struct graph_node *to_remove)
@@ -178,7 +162,57 @@ void remove_node(struct graph *graph, struct graph_node *to_remove)
 
     remove_from_list_by_data(graph->nodes, to_remove);
     free(to_remove);
-    printf("REMOVED ONE NODE \n");
+}
+
+struct interface *add_interface(struct graph_node *node, char *name)
+{
+    int i;
+    struct interface *interface;
+
+    if(!node)
+     return NULL;
+    if((i = next_available_interface_slot(node)) == -1)
+        return NULL;
+
+    interface = add_interface_at_index(node, i, name);
+    return interface;
+}
+
+struct interface  *add_interface_at_index(struct graph_node *node, unsigned int index, char *name)
+{
+    struct interface *interface;
+
+    if(!node)
+     return NULL;
+
+    //Slot taken
+    if(node->interfaces[index])
+        return NULL;
+
+    if((interface = malloc(sizeof(struct interface))) == NULL)
+        return NULL;
+
+    if_net_init(&(interface->if_net));
+    generate_mac_addr(&(interface->if_net.mac_addr));
+    
+    strncpy(interface->name, name, INT_NAME_SIZE);
+    interface->name[INT_NAME_SIZE] = '\0';
+    
+    interface->link = NULL;
+    interface->node = node;
+
+    node->interfaces[index] = interface;
+
+    return interface;
+}
+
+void remove_interface(struct interface *interface)
+{
+    struct graph_link *link;
+    if(!interface)
+        return;
+    remove_link(interface->link);
+    free(interface);   
 }
 
 struct graph_link  *add_link(struct interface *if1,
@@ -202,6 +236,68 @@ struct graph_link  *add_link(struct interface *if1,
     if2->link = link;
 
     return link;
+}
+
+void remove_link(struct graph_link *link)
+{
+    if(!link) 
+        return;
+    //Disconnonnect attached interface;
+    link->if_1->link = NULL;
+    link->if_2->link = NULL;
+
+    free(link);
+}
+
+void set_node_ip_addr(struct graph_node *node, u_int32_t ip)
+{
+    struct ip_addr *ip_addr;
+
+    if(!node)
+        return;
+    else
+        set_ip(&(node->node_net.ip_addr), ip);
+}
+
+void set_if_ip_addr(struct interface *interface, u_int32_t ip, u_int8_t mask)
+{
+    struct ip_addr *ip_addr;
+
+    if(!interface)
+        return;
+    else
+        set_ip(&(interface->if_net.ip_addr), ip);
+    
+    interface->if_net.mask = mask;
+}
+
+struct interface *get_interface_in_subnet(struct graph_node *node, u_int32_t ip)
+{
+    int i;
+    u_int8_t mask;
+    u_int32_t subnet0, subnet1;
+    struct interface *interface;
+    struct if_net net;
+
+    if(!node)
+        return NULL;
+
+    for(i = 0; i < MAX_INTERFACE; i++)
+    {
+        interface = node->interfaces[i];
+        if(!interface)
+            continue;
+        net = interface->if_net;
+        if(!net.ip_addr.ip_set)
+            continue;
+        mask = net.mask;
+        subnet0 = get_subnet(net.ip_addr.ip_addr, mask);
+        subnet1 = get_subnet(ip, mask);
+
+        if(!(subnet0 ^ subnet1))
+            return interface;
+    }
+    return NULL;
 }
 
 struct graph_node *find_node_by_name(struct graph *graph, char *name)
@@ -234,40 +330,59 @@ struct graph_node *find_node_by_name(struct graph *graph, char *name)
     return NULL;
 }
 
-struct interface  *add_interface_at_index(struct graph_node *node, unsigned int index, char *name)
-{
-    struct interface *interface;
-
-    if(!node)
-     return NULL;
-
-    //Slot taken
-    if(node->interfaces[index])
-        return NULL;
-
-    if((interface = malloc(sizeof(struct interface))) == NULL)
-        return NULL;
-    
-    strncpy(interface->name, name, INT_NAME_SIZE);
-    interface->name[INT_NAME_SIZE] = '\0';
-    interface->link = NULL;
-    interface->node = node;
-
-    node->interfaces[index] = interface;
-
-    return interface;
-}
-
-struct interface *add_interface(struct graph_node *node, char *name)
+void print_graph(struct graph *graph)
 {
     int i;
+    struct doubly_linked_item *item;
+    struct graph_node *node;
     struct interface *interface;
+    struct graph_link* link;
+    if(!graph)
+    {
+        printf("Graph is NULL. END\n");
+        return;
+    }
+    //Print name of graph
+    printf("Graph name : %s\n", graph->topology_name);
 
-    if(!node)
-     return NULL;
-    if((i = next_available_interface_slot(node)) == -1)
-        return NULL;
+    //Enumerate all the nodes and their interfaces
+    item = graph->nodes->head;
 
-    interface = add_interface_at_index(node, i, name);
-    return interface;
+    if(!item)
+    {
+        printf("Graph has no node. END\n");
+        return;
+    }
+
+    while(item)
+    {
+        node = (struct graph_node *)item->data;
+
+        printf("***************************************\n");
+        printf("Node name : %s\n", node->name);
+        printf("Is IP set :  : %u\n", node->node_net.ip_addr.ip_set);
+        print_ip(&(node->node_net.ip_addr));
+        printf("+++++++++++++Interfaces+++++++++++++++++\n");
+        for(i = 0; i < MAX_INTERFACE; i++)
+        {
+            interface = node->interfaces[i];
+            if(!interface)
+                continue;
+            printf("Interface name : %s\n", interface->name);
+            print_mac(&(interface->if_net.mac_addr));
+            print_ip(&(interface->if_net.ip_addr));
+            printf("Mask : %u\n", interface->if_net.mask);
+            
+            interface = get_attached_interface(interface);
+            if(!interface)
+                printf("Interface is free\n");
+            else
+                printf("Linked to interface : %s\n",  interface->name);
+            printf("          -----------              \n");
+        }
+        printf("+++++++++++++++++++++++++++++++++++++++\n");
+        printf("***************************************\n");
+
+        item = item->next;
+    }
 }

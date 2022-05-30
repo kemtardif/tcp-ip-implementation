@@ -1,4 +1,6 @@
 #include <stdlib.h>
+#include <sys/types.h>
+#include "structures/net.h"
 #include "structures/graph.h"
 
 
@@ -29,6 +31,10 @@ struct graph *three_devices_topology()
         return NULL;
     }
 
+    set_node_ip_addr(R0_re, (u_int32_t)2394452033);
+    set_node_ip_addr(R1_re, (u_int32_t)1085738960);
+    set_node_ip_addr(R2_re, (u_int32_t)9675987479);
+
     //Create and attach all interfaces
     if((if0 = add_interface(R0_re, "eth/0")) == NULL
         || (if1 = add_interface(R0_re, "eth/1")) == NULL
@@ -40,6 +46,13 @@ struct graph *three_devices_topology()
         graph_free(graph);
         return NULL;
     }
+
+    set_if_ip_addr(if0, (u_int32_t)1584638609, 32);
+    set_if_ip_addr(if1, (u_int32_t)9364857802, 24);
+    set_if_ip_addr(if2, (u_int32_t)1537935793, 32);
+    set_if_ip_addr(if3, (u_int32_t)1856479437, 24);
+    set_if_ip_addr(if4, (u_int32_t)2547693578, 32);
+    set_if_ip_addr(if5, (u_int32_t)1857237567, 24);
 
     //Add links between the interfaces;
     if((l0 = add_link(if1, if2, 1)) == NULL
