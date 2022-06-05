@@ -2,3 +2,6 @@
 .vscode/* 
 ### Object files output folder ***
 obj/*
+### main app .o and .exe ###
+*.exe
+*.o

@@ -1,6 +1,13 @@
 #ifndef _GRAPH_H_
 #define _GRAPH_H_
 
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/types.h>
+#include "dll.h"
+#include "net.h"
+
 #define GR_NAME_SIZE 32
 #define ND_NAME_SIZE 16
 #define MAX_INTERFACE 10
@@ -46,6 +53,7 @@ struct graph_link
 ////////////////Functions///////////////////////////////
 
 struct graph *graph_init(char *topology_name);
+//Free whole graph and attached structures (dll, nodes and links)
 void graph_free(struct graph *graph);
 //Return a pointer to a link between nodes if it exist, otherwise return NULL
 struct graph_link *adjacent(struct graph_node *node1, struct graph_node *node2);
@@ -59,8 +67,8 @@ struct interface *add_interface(struct graph_node *node, char *name);
 struct interface  *add_interface_at_index(struct graph_node *node, 
                                           unsigned int index, 
                                           char *name);
-//Remove interface and associated link, if it exists
-void remove_interface(struct interface *interface);
+//Remove interface by name if itexists
+void remove_interface_by_name(struct graph_node *node, char *name);
 //Return created link, otherwise NULL
 struct graph_link *add_link(struct interface *if1,
                             struct interface *if2,
@@ -69,7 +77,7 @@ struct graph_link *add_link(struct interface *if1,
 void remove_link(struct graph_link *link);
 
 //////////////Networking functions on structures/////////////////
-void set_node_ip_addr(struct graph_node *node, u_int32_t ip);
+void set_node_ip_addr(struct graph_node *node, u_int32_t ip, u_int8_t mask);
 void set_if_ip_addr(struct interface *interface, u_int32_t ip, u_int8_t mask);
 struct interface *get_interface_in_subnet(struct graph_node *node, u_int32_t ip);
 
@@ -83,7 +91,7 @@ struct graph_node *find_node_by_name(struct graph *graph, char *name);
 int next_available_interface_slot(struct graph_node *node);
 //Return interface by name, or NULL otherwise
 struct interface *find_interface_by_name(struct graph_node *node, char *name);
-//This print all the available graph informations and configuration
-void print_graph(struct graph *graph);
+//
+void free_interface(struct interface *interface);
 #endif 
 

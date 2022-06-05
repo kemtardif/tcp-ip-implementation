@@ -1,4 +1,3 @@
-#include <stdlib.h>
 #include "dll.h"
 
 void add_to_list(struct doubly_linked_list *list, struct doubly_linked_item *new_item)

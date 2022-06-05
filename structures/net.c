@@ -1,25 +1,23 @@
-#include <stdlib.h>
-#include <sys/types.h>
-#include <stdio.h>
 #include "net.h"
 
 void node_net_init(struct node_net *node_net)
 {
     node_net->ip_addr.ip_set = 0;
     node_net->ip_addr.ip_addr = 0;
+    node_net->ip_addr.mask = 32;
 }
 void if_net_init(struct if_net *if_net)
 {
     int i;
     if_net->ip_addr.ip_set = 0;
     if_net->ip_addr.ip_addr = 0x0;
+    if_net->ip_addr.mask = 32;
 
     for(i = 0; i < MAC_SIZE; i++)
         if_net->mac_addr.addr[i] = 0;
-    if_net->mask = 0;
 }
 
-void set_ip(struct ip_addr *ip_addr, u_int32_t ip)
+void set_ip(struct ip_addr *ip_addr, u_int32_t ip, u_int8_t mask)
 {
     if(!ip_addr)
         return;
@@ -28,6 +26,7 @@ void set_ip(struct ip_addr *ip_addr, u_int32_t ip)
     else
         ip_addr->ip_set = 1;
     ip_addr->ip_addr = ip;
+    ip_addr->mask = mask;
 }
 
 void set_mac(struct mac_addr *mac_addr, u_int8_t addr[MAC_SIZE])
@@ -94,34 +93,4 @@ int is_broadcast(struct mac_addr *mac)
             return 0;     
     }
     return 1;
-}
-
-
-void print_ip(struct ip_addr *ip_addr)
-{
-    int i;
-    u_int8_t parts[IP_SIZE];
-    u_int32_t ip = ip_addr->ip_addr;
-
-    if(!ip_addr)
-        return;
-
-    parts[0] = (ip >> 24) & 0xFF;
-    parts[1] = (ip >> 16) & 0xFF;
-    parts[2] = (ip >> 8) & 0xFF;
-    parts[3] = (ip >> 0) & 0xFF;
-
-    printf("IP address : %i.%i.%i.%i\n", parts[0], parts[1], parts[2], parts[3]);
-}
-
-void print_mac(struct mac_addr *mac_addr)
-{
-    if(!mac_addr)
-        return;
-    printf("MAC address : %X-%X-%X-%X-%X-%X\n", mac_addr->addr[0],
-                                mac_addr->addr[1],
-                                mac_addr->addr[2],
-                                mac_addr->addr[3],
-                                mac_addr->addr[4],
-                                mac_addr->addr[5]);
 }

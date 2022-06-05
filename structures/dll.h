@@ -1,6 +1,6 @@
 #ifndef _DLL_H_
 #define _DLL_H_
-
+#include <stdlib.h>
 //////////////Structure definitions////////////////
 
 struct doubly_linked_item {
