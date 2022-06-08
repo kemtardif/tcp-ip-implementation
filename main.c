@@ -5,10 +5,12 @@
 #include <arpa/inet.h>
  #include <errno.h>
 #include <unistd.h>
+#include <stdlib.h>
 #include <sys/wait.h>
 #include <sys/socket.h>
 #include "structures/graph.h"
 #include "config.h"
+#include "comm_channel.h"
 
 
 #define PORT 8000
@@ -17,6 +19,7 @@
 #define COST "cost"
 #define IP "ip"
 #define SUBNET "subnet"
+#define IP_MAX_VALUE 19
 
 
 struct context
@@ -36,12 +39,14 @@ int cmd_remove_interface(struct cli_def *cli, const char *command, char *argv[],
 int cmd_remove_link(struct cli_def *cli, const char *command, char *argv[], int argc);
 int cmd_set_node(struct cli_def *cli, const char *command, char *argv[], int argc);
 int cmd_set_interface(struct cli_def *cli, const char *command, char *argv[], int argc);
+int cmd_network_up(struct cli_def *cli, const char *command, char *argv[], int argc);
+int cmd_network_down(struct cli_def *cli, const char *command, char *argv[], int argc);
 int cmd_dump(struct cli_def *cli, const char *command, char *argv[], int argc);
 int cmd_show_node(struct cli_def *cli, const char *command, char *argv[], int argc);
+int cmd_broadcast(struct cli_def *cli, const char *command, char *argv[], int argc);
 int graph4graph_validator(struct cli_def *cli, const char *name, const char *value);
 int graph_validator(struct cli_def *cli, const char *name, const char *value);
 int value_validator(struct cli_def *cli, const char *name, const char *value);
-int node_name_validator(struct cli_def *cli, const char *name, const char *value);
 int is_graph_set(struct cli_def *cli);
 struct graph *get_current_graph(struct cli_def *cli);
 void print_graph(struct cli_def *cli, struct graph *graph);
@@ -50,6 +55,7 @@ void print_ip(struct cli_def *cli, struct ip_addr *ip_addr);
 void print_subnet(struct cli_def *cli, struct ip_addr *ip_addr);
 void print_mac(struct cli_def *cli, struct mac_addr *mac_addr);
 int set_ip_c(struct cli_def *cli, struct ip_addr *ip_addr, char *value);
+int is_port_valid(struct cli_def *cli, char *port_s);
 
 int main()
 {
@@ -149,9 +155,20 @@ void run(int fd)
     o = cli_register_optarg(d, "node_name", CLI_CMD_ARGUMENT, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Specify a node", NULL, graph_validator, NULL);
     o = cli_register_optarg(d, "interface_name", CLI_CMD_ARGUMENT, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Specify an interface", NULL, value_validator, NULL);
     o = cli_register_optarg(d, "ip", CLI_CMD_OPTIONAL_ARGUMENT, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Set ip address/mask in format 255.255.255.255/32", NULL, value_validator, NULL);
+
+    //Activate communication channel
+    c = cli_register_command(cli, NULL, "network", NULL, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, NULL);
+    d = cli_register_command(cli, c, "up", cmd_network_up , PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Activate communication channel.");
+    d = cli_register_command(cli, c, "down", cmd_network_down , PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "De-activate communication channel.");
     
     //Dump network informations
     cli_register_command(cli, NULL, "dump", cmd_dump, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Dump current network informations");
+    
+    //Send packet by src and dst ports
+    c = c = cli_register_command(cli, NULL, "broadcast", cmd_broadcast, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Broadcast message from a given node");
+    o = cli_register_optarg(c, "from", CLI_CMD_ARGUMENT, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Source node", NULL, graph_validator, NULL);
+    o = cli_register_optarg(c, "packet", CLI_CMD_ARGUMENT, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Packet to send", NULL, value_validator, NULL);
+    o = cli_register_optarg(c, "except", CLI_CMD_OPTIONAL_ARGUMENT, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Interface to ignore", NULL, value_validator, NULL);
 
     //print structures
     c = cli_register_command(cli, NULL, "show", NULL, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, NULL);
@@ -206,6 +223,12 @@ int cmd_add_node(struct cli_def *cli, const char *command, char *argv[], int arg
     struct graph_node *node;
     char *name = cli_get_optarg_value(cli, NAME, NULL); 
 
+    if(graph->is_up)
+    {
+        cli_error(cli, "Cannot add node while network is up.\n");
+        return CLI_ERROR;
+    }
+
     if((node = add_node(graph, name)) == NULL)
     {
         cli_error(cli, "Could not add node %s to network.\n", name);
@@ -222,6 +245,12 @@ int cmd_add_interface(struct cli_def *cli, const char *command, char *argv[], in
     struct graph *graph = get_current_graph(cli);
     struct graph_node *node = find_node_by_name(graph, name);
     struct interface *itf;
+
+    if(graph->is_up)
+    {
+        cli_error(cli, "Cannot add interface while network is up.\n");
+        return CLI_ERROR;
+    }
 
     if(!node)
     {
@@ -250,7 +279,13 @@ int cmd_add_link(struct cli_def *cli, const char *command, char *argv[], int arg
     char *ptr;
     unsigned long cost_l = strtoul(cost_n, &ptr, 10);
     unsigned int cost;
-    printf("BEFORE COST\n");
+
+    if(graph->is_up)
+    {
+        cli_error(cli, "Cannot add link while network is up.\n");
+        return CLI_ERROR;
+    }
+
     if(*ptr != '\0' || cost_l > UINT_MAX)
     {
         cli_error(cli, "Invalid cost value.\n");
@@ -307,6 +342,13 @@ int cmd_remove_network(struct cli_def *cli, const char *command, char *argv[], i
         cli_error(cli, "\nNo network to release.\n");
         return CLI_ERROR;
     }
+
+    if(graph->is_up)
+    {
+        cli_error(cli, "You must first put down the network.\n");
+        return CLI_ERROR;
+    }
+
     graph_free(graph);
 
     cntx = (struct context *)cli_get_context(cli);
@@ -321,6 +363,12 @@ int cmd_remove_node(struct cli_def *cli, const char *command, char *argv[], int 
     char *name = cli_get_optarg_value(cli, NAME, NULL);
     struct graph *graph = get_current_graph(cli);
     struct graph_node *node = find_node_by_name(graph, name);
+
+    if(graph->is_up)
+    {
+        cli_error(cli, "You must first put down the network.\n");
+        return CLI_ERROR;
+    }
 
     if(!node)
     {
@@ -339,6 +387,12 @@ int cmd_remove_interface(struct cli_def *cli, const char *command, char *argv[],
     struct graph *graph = get_current_graph(cli);
     struct graph_node *node = find_node_by_name(graph, name);
     struct interface *itf;
+
+    if(graph->is_up)
+    {
+        cli_error(cli, "You must first put down the network.\n");
+        return CLI_ERROR;
+    }
 
     if(!node)
     {
@@ -360,6 +414,12 @@ int cmd_remove_link(struct cli_def *cli, const char *command, char *argv[], int 
     struct graph_node *node;
     struct graph_link *link;
     struct interface *interface;
+
+    if(graph->is_up)
+    {
+        cli_error(cli, "You must first put down the network.\n");
+        return CLI_ERROR;
+    }
 
     if((node = find_node_by_name(graph, name_n)) == NULL)
     {
@@ -438,6 +498,54 @@ int cmd_set_interface(struct cli_def *cli, const char *command, char *argv[], in
     return CLI_OK;
 }
 
+int cmd_network_up(struct cli_def *cli, const char *command, char *argv[], int argc)
+{
+    struct graph *graph = get_current_graph(cli);
+    int i;
+
+    if(!graph)
+    {
+        cli_error(cli, "\nNo network is configured.\n");
+        return CLI_ERROR;
+    }
+
+    if(graph->is_up)
+    {
+        cli_error(cli, "\nNetwork already up.\n");
+        return CLI_ERROR;
+    }
+
+    if((i = init_comm_channel(graph)) == 0)
+    {
+        cli_error(cli, "\nCritical error while activating network\n");
+        close_comm_channel(graph);
+        return CLI_ERROR;
+    }
+    cli_print(cli, "Network activated\n");
+    return CLI_OK;
+}
+
+int cmd_network_down(struct cli_def *cli, const char *command, char *argv[], int argc)
+{
+    struct graph *graph = get_current_graph(cli);
+
+    if(!graph)
+    {
+        cli_error(cli, "\nNo network is configured.\n");
+        return CLI_ERROR;
+    }
+
+    if(!graph->is_up)
+    {
+        cli_error(cli, "\nNetwork not up.\n");
+        return CLI_ERROR;
+    }
+    close_comm_channel(graph);
+
+    cli_print(cli, "Network de-activated\n");
+    return CLI_OK;
+}
+
 int cmd_dump(struct cli_def *cli, const char *command, char *argv[], int argc)
 {
     struct graph *graph = get_current_graph(cli);
@@ -477,6 +585,37 @@ int cmd_show_node(struct cli_def *cli, const char *command, char *argv[], int ar
     }
     if(!set)
         print_node(cli, node);
+
+    return CLI_OK;
+}
+
+int cmd_broadcast(struct cli_def *cli, const char *command, char *argv[], int argc)
+{
+    char *from = cli_get_optarg_value(cli, "from", NULL);
+    char *except =  cli_get_optarg_value(cli, "except", NULL);
+    char *packet = cli_get_optarg_value(cli, "packet", NULL);
+    struct graph *graph = get_current_graph(cli);
+    struct graph_node *nodeSrc;
+    struct interface *itf_except;
+    int i;
+
+    if(!graph->is_up)
+    {
+         cli_error(cli, "\nNetwork not up.\n");
+        return CLI_ERROR;
+    }
+    if((nodeSrc = find_node_by_name(graph, from)) == NULL)
+    {
+        cli_error(cli, "\nSource not in graph.\n");
+        return CLI_ERROR;
+    }
+    itf_except = find_interface_by_name(nodeSrc, except);
+    if((i = broadcast_from(nodeSrc, packet, strlen(packet), itf_except)) == -1)
+    {
+        cli_error(cli, "\nCould not broadcast packets from node %s.\n", nodeSrc->name);
+        return CLI_OK;
+    } 
+    cli_print(cli, "Packet %s sent throught %i interface.\n", packet, i);
 
     return CLI_OK;
 }
@@ -600,6 +739,7 @@ void print_graph(struct cli_def *cli, struct graph *graph)
 void print_node(struct cli_def *cli, struct graph_node *node)
 {
     cli_print(cli, "Node : %s\n", node->name);
+    cli_print(cli, "UDP port : %d\n", node->socket_port);
     print_ip(cli, &(node->node_net.ip_addr));
     print_subnet(cli, &(node->node_net.ip_addr));
 }
@@ -665,30 +805,48 @@ void print_mac(struct cli_def *cli, struct mac_addr *mac_addr)
 int set_ip_c(struct cli_def *cli, struct ip_addr *ip_addr, char *value)
 {
     u_int32_t ip;
-    u_int32_t parts[5];
+    u_int8_t ip_parts[4];
     u_int8_t mask;
 
-    if((sscanf(value, "%u.%u.%u.%u/%hhu", &parts[0],
-                                        &parts[1],
-                                        &parts[2],
-                                        &parts[3],
-                                        &mask)) == EOF)
+    if((sscanf(value, "%hhu.%hhu.%hhu.%hhu/%hhu", &ip_parts[0],
+                                        &ip_parts[1],
+                                        &ip_parts[2],
+                                        &ip_parts[3],
+                                        &mask)) != 4)
     {
         cli_error(cli, "Ip address not in format 255.255.255.255/32\n");
         return CLI_ERROR;
     }
 
-    //Ip parts
-    parts[0] = (parts[0] & 0xFF) << 24;
-    parts[1] = (parts[1] & 0xFF) << 16;
-    parts[2] = (parts[2] & 0xFF) << 8;
-    parts[3] = (parts[3] & 0xFF) << 0;
-
-    ip = parts[0] | parts[1] | parts[2] | parts[3];
+    ip  =  (u_int32_t)ip_parts[0] << 24
+         | (u_int32_t)ip_parts[1] << 16
+         | (u_int32_t)ip_parts[2] << 8
+         | (u_int32_t)ip_parts[3] << 0;
 
     set_ip(ip_addr, ip, mask);
     cli_print(cli, "Ip address set.\n");
     return CLI_OK;
+}
+
+int is_port_valid(struct cli_def *cli, char *port_s)
+{
+    struct graph *graph = get_current_graph(cli);
+    struct doubly_linked_item *item;
+    struct graph_node *node;
+    unsigned int port;
+
+    if((port = (unsigned int)strtoul(port_s ,NULL, 10)) == 0)
+        return 0;
+    
+    item = graph->nodes->head;
+    while(item)
+    {
+        node = (struct graph_node *)item->data;
+        if(node->socket_port == port)
+            return 1;
+        item = item->next;
+    }
+    return 0;
 }
 
 

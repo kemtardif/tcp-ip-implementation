@@ -36,7 +36,7 @@ struct interface *find_interface_by_name(struct graph_node *node, char *name)
     struct interface *interface;
     char name_str[INT_NAME_SIZE];
 
-    if(!node) 
+    if(!node || !name) 
         return NULL;
     
     strncpy(name_str, name, INT_NAME_SIZE);
@@ -68,6 +68,8 @@ struct graph *graph_init(char *topology_name)
     }
 
     graph->nodes->head = NULL;
+    graph->node_count = 0;
+    graph->is_up = 0;
 
     return graph;
 }
@@ -121,6 +123,8 @@ struct graph_node *add_node(struct graph *graph, char *name)
 
     if(!graph) 
         return NULL;
+    if(graph->node_count == MAX_NODE)
+        return NULL;
     if((new_graph_node = find_node_by_name(graph, name)) != NULL)
         return NULL;       
     if((new_graph_node = malloc(sizeof(struct graph_node))) == NULL) 
@@ -135,12 +139,17 @@ struct graph_node *add_node(struct graph *graph, char *name)
 
     strncpy(new_graph_node->name, name, ND_NAME_SIZE);
     new_graph_node->name[ND_NAME_SIZE] = '\0';
+    new_graph_node->socket_fd = -1;
+    new_graph_node->socket_port = 0;
+
 
     for(i = 0; i < MAX_INTERFACE; i++)
         new_graph_node->interfaces[i] = NULL;
 
     new_list_item->data = new_graph_node;
     add_to_list(graph->nodes, new_list_item);
+
+    graph->node_count++;
 
     return new_graph_node;
 }
@@ -156,8 +165,12 @@ void remove_node(struct graph *graph, struct graph_node *to_remove)
     for(i = 0; i < MAX_INTERFACE; i ++)
         free_interface(to_remove->interfaces[i]);
 
+    if(to_remove->socket_fd > 0)
+        close(to_remove->socket_fd);
     remove_from_list_by_data(graph->nodes, to_remove);
     free(to_remove);
+
+    graph->node_count--;
 }
 
 struct interface *add_interface(struct graph_node *node, char *name)

@@ -5,6 +5,10 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/types.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <unistd.h>
 #include "dll.h"
 #include "net.h"
 
@@ -12,12 +16,16 @@
 #define ND_NAME_SIZE 16
 #define MAX_INTERFACE 10
 #define INT_NAME_SIZE 16
+#define INIT_PORT 40000
+#define MAX_NODE 100
 
 ////////////////Structure definitions////////////////////////////
 
 //This would be the actual network, with a list of network devices
 struct graph {
     char topology_name[GR_NAME_SIZE];
+    int node_count;
+    unsigned long is_up;
     struct doubly_linked_list *nodes;
 };
 
@@ -27,6 +35,8 @@ In this case, a NULL interface is just an empty slot.
 */
 struct graph_node {
     char name[ND_NAME_SIZE];
+    unsigned int socket_port;
+    int socket_fd;
     struct node_net node_net;
     struct interface *interfaces[MAX_INTERFACE];
 };
@@ -91,7 +101,7 @@ struct graph_node *find_node_by_name(struct graph *graph, char *name);
 int next_available_interface_slot(struct graph_node *node);
 //Return interface by name, or NULL otherwise
 struct interface *find_interface_by_name(struct graph_node *node, char *name);
-//
+//Free interface and associated link, if any.
 void free_interface(struct interface *interface);
 #endif 
 
