@@ -8,34 +8,23 @@
 #define MAC_SIZE 6
 #define IP_SIZE 4
 
-struct mac_addr {
-    u_int8_t addr[MAC_SIZE];
-};
-struct ip_addr {
+#define IP_TYPE (u_int16_t)0x0800
+#define ARP_TYPE (u_int16_t)0x0806
+
+struct ip_struct {
     unsigned int ip_set;
     u_int32_t ip_addr;
     u_int8_t mask;
 };
-//Networking properties for nodes
-struct node_net 
-{
-    struct ip_addr ip_addr;
-};
-//Networking properties for interfaces
-struct if_net 
-{
-    struct ip_addr ip_addr;
-    struct mac_addr mac_addr;
-};
+//node has only ip_strur interface mac and ipstruct
 
 /////////Network-related functions//////////////
-void node_net_init(struct node_net *node_net);
-void if_net_init(struct if_net *if_net);
-void set_ip(struct ip_addr *ip_addr, u_int32_t ip, u_int8_t mask);
-void set_mac(struct mac_addr *mac_addr, u_int8_t addr[MAC_SIZE]);
+void set_ip(struct ip_struct *ip_addr, u_int32_t ip, u_int8_t mask);
+void set_mac(u_int8_t *mac_addr, u_int8_t *addr);
 u_int32_t get_subnet(u_int32_t ip, u_int8_t mask_bits);
-void generate_mac_addr(struct mac_addr *mac);
-void generate_broadcast_addr(struct mac_addr *mac);
-int is_broadcast(struct mac_addr *mac);
+void generate_mac_addr(u_int8_t *mac_addr);
+void generate_broadcast_addr(u_int8_t *mac_addr);
+int is_broadcast(u_int8_t *mac_addr);
+int are_mac_equal(u_int8_t *mac1, u_int8_t *mac2);
 
 #endif

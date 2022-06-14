@@ -16,7 +16,7 @@ struct interface *get_attached_interface(struct interface *interface)
     else
         return link->if_1;
 
-};
+}
 int next_available_interface_slot(struct graph_node *node)
 {
     int i;
@@ -40,7 +40,7 @@ struct interface *find_interface_by_name(struct graph_node *node, char *name)
         return NULL;
     
     strncpy(name_str, name, INT_NAME_SIZE);
-    name_str[INT_NAME_SIZE] = '\0';
+    name_str[INT_NAME_SIZE - 1] = '\0';
 
     for(i = 0; i < MAX_INTERFACE; i++)
     {
@@ -60,7 +60,7 @@ struct graph *graph_init(char *topology_name)
         return NULL;
 
     strncpy(graph->topology_name, topology_name, GR_NAME_SIZE - 1);
-    graph->topology_name[GR_NAME_SIZE] = '\0';
+    graph->topology_name[GR_NAME_SIZE - 1] = '\0';
     if((graph->nodes = malloc(sizeof(struct doubly_linked_list))) == NULL)
     {
         free(graph);
@@ -115,13 +115,13 @@ struct graph_link *adjacent(struct graph_node *node1, struct graph_node *node2)
     return NULL;
 }
 
-struct graph_node *add_node(struct graph *graph, char *name)
+struct graph_node *add_node(struct graph *graph, char *name, int type)
 {
     int i;
     struct graph_node *new_graph_node;
     struct doubly_linked_item *new_list_item;
 
-    if(!graph) 
+    if(!graph || !name || !type) 
         return NULL;
     if(graph->node_count == MAX_NODE)
         return NULL;
@@ -135,16 +135,20 @@ struct graph_node *add_node(struct graph *graph, char *name)
         return NULL;
     }
 
-    node_net_init(&(new_graph_node->node_net));
-
     strncpy(new_graph_node->name, name, ND_NAME_SIZE);
-    new_graph_node->name[ND_NAME_SIZE] = '\0';
+    new_graph_node->name[ND_NAME_SIZE - 1] = '\0';
     new_graph_node->socket_fd = -1;
     new_graph_node->socket_port = 0;
+    new_graph_node->type = type;
 
 
     for(i = 0; i < MAX_INTERFACE; i++)
         new_graph_node->interfaces[i] = NULL;
+
+    new_graph_node->switch_table = NULL;
+    if(type == SWITCH)
+        new_graph_node->switch_table = init_hash_table(SUBNET_CAPACITY);
+
 
     new_list_item->data = new_graph_node;
     add_to_list(graph->nodes, new_list_item);
@@ -168,6 +172,8 @@ void remove_node(struct graph *graph, struct graph_node *to_remove)
     if(to_remove->socket_fd > 0)
         close(to_remove->socket_fd);
     remove_from_list_by_data(graph->nodes, to_remove);
+    if(to_remove->type == SWITCH)
+        free_hash_table(to_remove->switch_table);
     free(to_remove);
 
     graph->node_count--;
@@ -203,15 +209,24 @@ struct interface  *add_interface_at_index(struct graph_node *node, unsigned int 
 
     if((interface = malloc(sizeof(struct interface))) == NULL)
         return NULL;
-
-    if_net_init(&(interface->if_net));
-    generate_mac_addr(&(interface->if_net.mac_addr));
+    if((interface->arp_table = init_hash_table(SUBNET_CAPACITY)) == NULL)
+    {
+        free_interface(interface);
+        return NULL;
+    }
+    
+    if_net_init(interface);
+    generate_mac_addr(interface->mac_addr);
     
     strncpy(interface->name, name, INT_NAME_SIZE);
-    interface->name[INT_NAME_SIZE] = '\0';
+    interface->name[INT_NAME_SIZE - 1] = '\0';
     
     interface->link = NULL;
     interface->node = node;
+
+    interface->arp_table = NULL;
+    if(interface->node->type != SWITCH)
+        interface->arp_table = init_hash_table(SUBNET_CAPACITY);
 
     node->interfaces[index] = interface;
 
@@ -229,7 +244,7 @@ void remove_interface_by_name(struct graph_node *node, char *name)
         return;
 
     strncpy(if_name, name, INT_NAME_SIZE);
-    if_name[ND_NAME_SIZE] = '\0';
+    if_name[ND_NAME_SIZE - 1] = '\0';
 
     for(i = 0; i < MAX_INTERFACE; i++)
     {
@@ -249,10 +264,32 @@ void free_interface(struct interface *interface)
 {
     if(!interface)
         return;
-
     if(interface->link)
         remove_link(interface->link);
+    if(interface->node->type != SWITCH)
+        free_hash_table(interface->arp_table);
     free(interface);   
+}
+
+struct interface *find_source_interface_by_mac(struct graph_node *node, u_int8_t *mac_addr_src)
+{
+    int i;
+    struct interface *itf, *srcItf;
+    if(!node)
+        return NULL;
+
+    for(i = 0; i < MAX_INTERFACE; i++)
+    {
+        itf = node->interfaces[i];
+        if(!itf)
+         continue;
+        srcItf = get_attached_interface(itf);
+        if(!srcItf)
+            continue;
+        if(are_mac_equal(srcItf->mac_addr, mac_addr_src))
+            return srcItf;
+    }
+    return NULL;
 }
 
 struct graph_link  *add_link(struct interface *if1,
@@ -289,26 +326,14 @@ void remove_link(struct graph_link *link)
     free(link);
 }
 
-void set_node_ip_addr(struct graph_node *node, u_int32_t ip, u_int8_t mask)
+void set_itf_ip(struct interface *interface, u_int32_t ip, u_int8_t mask)
 {
-    struct ip_addr *ip_addr;
-
-    if(!node)
-        return;
-    else
-        set_ip(&(node->node_net.ip_addr), ip, mask);
-}
-
-void set_if_ip_addr(struct interface *interface, u_int32_t ip, u_int8_t mask)
-{
-    struct ip_addr *ip_addr;
-
     if(!interface)
         return;
     else
-        set_ip(&(interface->if_net.ip_addr), ip, mask);
+        set_ip(&(interface->ip), ip, mask);
     
-    interface->if_net.ip_addr.mask = mask;
+    interface->ip.mask = mask;
 }
 
 struct interface *get_interface_in_subnet(struct graph_node *node, u_int32_t ip)
@@ -317,7 +342,7 @@ struct interface *get_interface_in_subnet(struct graph_node *node, u_int32_t ip)
     u_int8_t mask;
     u_int32_t subnet0, subnet1;
     struct interface *interface;
-    struct if_net net;
+    struct ip_struct net;
 
     if(!node)
         return NULL;
@@ -327,11 +352,11 @@ struct interface *get_interface_in_subnet(struct graph_node *node, u_int32_t ip)
         interface = node->interfaces[i];
         if(!interface)
             continue;
-        net = interface->if_net;
-        if(!net.ip_addr.ip_set)
+        net = interface->ip;
+        if(!net.ip_set)
             continue;
-        mask = net.ip_addr.mask;
-        subnet0 = get_subnet(net.ip_addr.ip_addr, mask);
+        mask = net.mask;
+        subnet0 = get_subnet(net.ip_addr, mask);
         subnet1 = get_subnet(ip, mask);
 
         if(!(subnet0 ^ subnet1))
@@ -355,7 +380,7 @@ struct graph_node *find_node_by_name(struct graph *graph, char *name)
         return NULL;
 
     strncpy(name_str, name, ND_NAME_SIZE);
-    name_str[ND_NAME_SIZE] = '\0';
+    name_str[ND_NAME_SIZE - 1] = '\0';
 
     item = items->head;
     while(item)
@@ -368,4 +393,15 @@ struct graph_node *find_node_by_name(struct graph *graph, char *name)
         item = item->next;
     }
     return NULL;
+}
+
+void if_net_init(struct interface *itf)
+{
+    int i;
+    itf->ip.ip_set = 0;
+    itf->ip.ip_addr = 0x0;
+    itf->ip.mask = 32;
+
+    for(i = 0; i < MAC_SIZE; i++)
+       itf->mac_addr[i] = 0;
 }

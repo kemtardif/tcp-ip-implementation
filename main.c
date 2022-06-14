@@ -43,6 +43,8 @@ int cmd_network_up(struct cli_def *cli, const char *command, char *argv[], int a
 int cmd_network_down(struct cli_def *cli, const char *command, char *argv[], int argc);
 int cmd_dump(struct cli_def *cli, const char *command, char *argv[], int argc);
 int cmd_show_node(struct cli_def *cli, const char *command, char *argv[], int argc);
+int cmd_show_switch(struct cli_def *cli, const char *command, char *argv[], int argc);
+int cmd_show_arp(struct cli_def *cli, const char *command, char *argv[], int argc);
 int cmd_broadcast(struct cli_def *cli, const char *command, char *argv[], int argc);
 int graph4graph_validator(struct cli_def *cli, const char *name, const char *value);
 int graph_validator(struct cli_def *cli, const char *name, const char *value);
@@ -51,10 +53,13 @@ int is_graph_set(struct cli_def *cli);
 struct graph *get_current_graph(struct cli_def *cli);
 void print_graph(struct cli_def *cli, struct graph *graph);
 void print_node(struct cli_def *cli, struct graph_node *node);
-void print_ip(struct cli_def *cli, struct ip_addr *ip_addr);
-void print_subnet(struct cli_def *cli, struct ip_addr *ip_addr);
-void print_mac(struct cli_def *cli, struct mac_addr *mac_addr);
-int set_ip_c(struct cli_def *cli, struct ip_addr *ip_addr, char *value);
+void print_ip(struct cli_def *cli, struct ip_struct *ip_addr);
+void print_type(struct cli_def *cli, int type);
+void print_subnet(struct cli_def *cli, struct ip_struct *ip_addr);
+void print_switching_table(struct cli_def *cli, struct graph_node *node);
+void print_arp_table(struct cli_def *cli, struct interface *itf);
+void print_mac(struct cli_def *cli, u_int8_t *mac_addr);
+int set_ip_c(struct cli_def *cli, struct ip_struct *ip_addr, char *value);
 int is_port_valid(struct cli_def *cli, char *port_s);
 
 int main()
@@ -90,7 +95,7 @@ int main()
 void run(int fd)
 {
     struct cli_def *cli;
-    struct cli_command *c, *d;
+    struct cli_command *c, *d, *e, *f;
     struct cli_optarg *o;
     struct context cntx;
     size_t i;
@@ -108,11 +113,15 @@ void run(int fd)
                                 "Add network graph");
     o = cli_register_optarg(d, NAME, CLI_CMD_ARGUMENT, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Specify a new or configured network by name", NULL, graph4graph_validator, NULL);
     //Pre-configured networks
-    cli_optarg_addhelp(o, "3-devices", "Simple, circular 3-devices network");
+    cli_optarg_addhelp(o, "3-devices", "Simple, 3-devices LAN");
     //_node
     d = cli_register_command(cli, c, "node", cmd_add_node, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, 
                                 "Add network node");
     o = cli_register_optarg(d, NAME, CLI_CMD_ARGUMENT, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Specify a node name", NULL, graph_validator, NULL);
+    o = cli_register_optarg(d, "type", CLI_CMD_ARGUMENT, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Specify a node type", NULL, value_validator, NULL);
+    cli_optarg_addhelp(o, "1", "Host node");
+    cli_optarg_addhelp(o, "2", "Router node");
+    cli_optarg_addhelp(o, "3", "Switch node");
     //_interface
     d = cli_register_command(cli, c, "interface", cmd_add_interface, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, 
                                 "Add network interface to node");
@@ -149,7 +158,7 @@ void run(int fd)
     //_node
     d = cli_register_command(cli, c, "node", cmd_set_node, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Set node values");
     o = cli_register_optarg(d, "name", CLI_CMD_ARGUMENT, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Specify a node name", NULL, graph_validator, NULL);
-    o = cli_register_optarg(d, "ip", CLI_CMD_OPTIONAL_ARGUMENT, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Set ip address/mask in format 255.255.255.255/32", NULL, value_validator, NULL);
+    o = cli_register_optarg(d, "type", CLI_CMD_OPTIONAL_ARGUMENT, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Set type of node", NULL, value_validator, NULL);
     //
     d = cli_register_command(cli, c, "interface", cmd_set_interface, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Set interface values");
     o = cli_register_optarg(d, "node_name", CLI_CMD_ARGUMENT, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Specify a node", NULL, graph_validator, NULL);
@@ -172,10 +181,17 @@ void run(int fd)
 
     //print structures
     c = cli_register_command(cli, NULL, "show", NULL, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, NULL);
-    c = cli_register_command(cli, c, "node", cmd_show_node , PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Print node informations.");
-    o = cli_register_optarg(c, NAME, CLI_CMD_ARGUMENT, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Specify a node by name.", NULL, graph_validator, NULL);
-    o = cli_register_optarg(c, IP, CLI_CMD_HYPHENATED_OPTION, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Get ip address", NULL, value_validator, NULL);
-    o = cli_register_optarg(c, SUBNET, CLI_CMD_HYPHENATED_OPTION, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Get subnet", NULL, value_validator, NULL);
+    d = cli_register_command(cli, c, "node", cmd_show_node , PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Print node informations.");
+    o = cli_register_optarg(d, NAME, CLI_CMD_ARGUMENT, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Specify a node by name.", NULL, graph_validator, NULL);
+    o = cli_register_optarg(d, "type", CLI_CMD_HYPHENATED_OPTION, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Get type", NULL, value_validator, NULL);
+    o = cli_register_optarg(d, SUBNET, CLI_CMD_HYPHENATED_OPTION, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Get subnet", NULL, value_validator, NULL);
+
+    e = d = cli_register_command(cli, c, "switch", cmd_show_switch , PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Print switch table.");
+    o = cli_register_optarg(e, NAME, CLI_CMD_ARGUMENT, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Specify a node by name.", NULL, graph_validator, NULL);
+
+    f = d = cli_register_command(cli, c, "arp", cmd_show_arp , PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Print switch table.");
+    o = cli_register_optarg(f, "node", CLI_CMD_ARGUMENT, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Specify a node by name.", NULL, graph_validator, NULL);
+    o = cli_register_optarg(f, "interface", CLI_CMD_ARGUMENT, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Specify an interface on node.", NULL, value_validator, NULL);
 
     cntx.is_topo_set = 0;
     cntx.graph = NULL;
@@ -222,15 +238,23 @@ int cmd_add_node(struct cli_def *cli, const char *command, char *argv[], int arg
     struct graph *graph = get_current_graph(cli);
     struct graph_node *node;
     char *name = cli_get_optarg_value(cli, NAME, NULL); 
+    char *type = cli_get_optarg_value(cli, "type", NULL); 
+    int t;
 
     if(graph->is_up)
     {
         cli_error(cli, "Cannot add node while network is up.\n");
         return CLI_ERROR;
     }
-
-    if((node = add_node(graph, name)) == NULL)
+    if((t = atoi(type)) == 0)
     {
+        cli_error(cli, "Could not add node %s to network.\n", name);
+        printf("TYPE: %i\n", t);
+        return CLI_ERROR;
+    }
+    if((node = add_node(graph, name, t)) == NULL)
+    {
+        printf("WHOOPS\n");
         cli_error(cli, "Could not add node %s to network.\n", name);
         return CLI_ERROR;
     } 
@@ -447,6 +471,7 @@ int cmd_set_node(struct cli_def *cli, const char *command, char *argv[], int arg
     struct graph *graph = get_current_graph(cli);
     struct graph_node *node;
     char *n_name, *value;
+    int type;
 
     n_name = cli_get_optarg_value(cli, "name", NULL);
     if((node = find_node_by_name(graph, n_name)) == NULL)
@@ -455,8 +480,8 @@ int cmd_set_node(struct cli_def *cli, const char *command, char *argv[], int arg
         return CLI_ERROR;
     }
 
-    if(((value = cli_get_optarg_value(cli, "ip", NULL)) != NULL)
-        && !set_ip_c(cli, &(node->node_net.ip_addr), value))
+    if(((value = cli_get_optarg_value(cli, "type", NULL)) != NULL)
+        && ((type = atoi(value)) == 0))
             return CLI_ERROR;
     else
     {
@@ -488,7 +513,7 @@ int cmd_set_interface(struct cli_def *cli, const char *command, char *argv[], in
     }
 
     if(((value = cli_get_optarg_value(cli, "ip", NULL)) != NULL)
-        && !set_ip_c(cli, &(itf->if_net.ip_addr), value))
+        && !set_ip_c(cli, &(itf->ip), value))
             return CLI_ERROR;
     else
     {
@@ -562,9 +587,9 @@ int cmd_show_node(struct cli_def *cli, const char *command, char *argv[], int ar
 {
     struct graph *graph = get_current_graph(cli);
     struct graph_node*node;
-    struct node_net net;
-    char *arg, *name = cli_get_optarg_value(cli, name, NULL);
+    char *arg, *name = cli_get_optarg_value(cli, "name", NULL);
     int set = 0;
+    int t;
     node = find_node_by_name(graph, name);
     if(!node)
     {
@@ -572,20 +597,65 @@ int cmd_show_node(struct cli_def *cli, const char *command, char *argv[], int ar
         return CLI_ERROR;
     }
 
-    net = node->node_net;
-    if((arg = cli_get_optarg_value(cli, IP, NULL)) != NULL)
+    if(((arg = cli_get_optarg_value(cli, "type", NULL)) != NULL))
     {
-        print_ip(cli, &(net.ip_addr));
-        set = 1;
-    }
-    if((arg = cli_get_optarg_value(cli, SUBNET, NULL)) != NULL)
-    {
-        print_subnet(cli, &(net.ip_addr));
+        print_type(cli, node->type);
         set = 1;
     }
     if(!set)
         print_node(cli, node);
 
+    return CLI_OK;
+}
+
+int cmd_show_switch(struct cli_def *cli, const char *command, char *argv[], int argc)
+{
+    struct graph *graph = get_current_graph(cli);
+    struct graph_node*node;
+    char *name = cli_get_optarg_value(cli, "name", NULL);
+
+    node = find_node_by_name(graph, name);
+    if(!node)
+    {
+        cli_error(cli, "Node not in network.\n");
+        return CLI_ERROR;
+    }
+    if(node->type != SWITCH)
+    {
+        cli_error(cli, "Node not an ethernet switch.\n");
+        return CLI_ERROR;
+    }    
+    print_switching_table(cli, node);
+    return CLI_OK;
+}
+
+int cmd_show_arp(struct cli_def *cli, const char *command, char *argv[], int argc)
+{
+    struct graph *graph = get_current_graph(cli);
+    struct graph_node*node;
+    struct interface *itf;
+    char *if_name, *name = cli_get_optarg_value(cli, "node", NULL);
+
+    node = find_node_by_name(graph, name);
+    if(!node)
+    {
+        cli_error(cli, "Node not in network.\n");
+        return CLI_ERROR;
+    }
+
+    if(node->type == SWITCH)
+    {
+        cli_error(cli, "Node is a switch.\n");
+        return CLI_ERROR;
+    }   
+
+    if_name = cli_get_optarg_value(cli, "interface", NULL);
+    if((itf = find_interface_by_name(node, if_name)) == NULL)
+    {
+        cli_error(cli, "\nInterface not on node.\n");
+        return CLI_ERROR;
+    }
+    print_arp_table(cli, itf);
     return CLI_OK;
 }
 
@@ -610,13 +680,12 @@ int cmd_broadcast(struct cli_def *cli, const char *command, char *argv[], int ar
         return CLI_ERROR;
     }
     itf_except = find_interface_by_name(nodeSrc, except);
-    if((i = broadcast_from(nodeSrc, packet, strlen(packet), itf_except)) == -1)
+    if((i = broadcast_from(nodeSrc, packet, strlen(packet), IP_TYPE, itf_except)) == -1)
     {
         cli_error(cli, "\nCould not broadcast packets from node %s.\n", nodeSrc->name);
         return CLI_OK;
     } 
     cli_print(cli, "Packet %s sent throught %i interface.\n", packet, i);
-
     return CLI_OK;
 }
 
@@ -707,18 +776,19 @@ void print_graph(struct cli_def *cli, struct graph *graph)
     {
         node = (struct graph_node *)item->data;
 
-        cli_print(cli, "***************************************\n");
         print_node(cli, node);
-        cli_print(cli, "***************************************\n");
+        cli_print(cli, "+++++++++++++++++++++++++++++++++++++++\n");
         for(i = 0; i < MAX_INTERFACE; i++)
         {
             interface = node->interfaces[i];
             if(!interface)
                 continue;
             cli_print(cli, "Interface : %s\n", interface->name);
-            print_mac(cli, &(interface->if_net.mac_addr));
-            print_ip(cli, &(interface->if_net.ip_addr));
-            print_subnet(cli, &(interface->if_net.ip_addr));
+             int i;
+            print_mac(cli, interface->mac_addr);
+            print_ip(cli, &(interface->ip));
+            print_subnet(cli, &(interface->ip));
+            print_arp_table(cli, interface);
             
             interface = get_attached_interface(interface);
             if(!interface)
@@ -740,11 +810,11 @@ void print_node(struct cli_def *cli, struct graph_node *node)
 {
     cli_print(cli, "Node : %s\n", node->name);
     cli_print(cli, "UDP port : %d\n", node->socket_port);
-    print_ip(cli, &(node->node_net.ip_addr));
-    print_subnet(cli, &(node->node_net.ip_addr));
+    print_type(cli, node->type);
+    print_switching_table(cli, node);
 }
 
-void print_ip(struct cli_def *cli, struct ip_addr *ip_addr)
+void print_ip(struct cli_def *cli, struct ip_struct *ip_addr)
 {
     int i;
     u_int8_t parts[IP_SIZE];
@@ -767,7 +837,25 @@ void print_ip(struct cli_def *cli, struct ip_addr *ip_addr)
     cli_print(cli, "IP address : %i.%i.%i.%i\n", parts[0], parts[1], parts[2], parts[3]);
 }
 
-void print_subnet(struct cli_def *cli, struct ip_addr *ip_addr)
+void print_type(struct cli_def *cli, int type)
+{
+    switch(type)
+    {
+        case HOST:
+            cli_print(cli, "Type : Host\n");
+            break;
+        case ROUTER:
+            cli_print(cli, "Type : Router\n");
+            break;
+        case SWITCH:
+            cli_print(cli, "Type : Switch\n");
+            break;
+        default:
+            return; 
+    }
+}
+
+void print_subnet(struct cli_def *cli, struct ip_struct *ip_addr)
 {
     u_int32_t subnet;
     u_int8_t parts[IP_SIZE];
@@ -790,19 +878,77 @@ void print_subnet(struct cli_def *cli, struct ip_addr *ip_addr)
     cli_print(cli, "Subnet : %i.%i.%i.%i\n", parts[0], parts[1], parts[2], parts[3]);
 }
 
-void print_mac(struct cli_def *cli, struct mac_addr *mac_addr)
+void print_switching_table(struct cli_def *cli, struct graph_node *node)
+{
+    size_t index;
+    struct hash_table *ht;
+    struct hash_entry entry;
+    struct interface *itf;
+    if(!node || node->type != SWITCH)
+        return;
+
+    cli_print(cli, "----------------------------------\n");
+    cli_print(cli, "Switching table entries: \n");
+
+    ht = node->switch_table;
+    for(index = 0; index < ht->capacity; index++)
+    {
+        entry = ht->entries[index];
+        if(entry.key && entry.value)
+        {
+            itf = (struct interface *)entry.value;
+            cli_print(cli, "MAC address: %s -- Interface : %s \n", entry.key, itf->name);
+        }
+    }
+    cli_print(cli, "----------------------------------\n");
+}
+
+void print_arp_table(struct cli_def *cli, struct interface *itf)
+{
+    size_t index;
+    struct hash_table *ht;
+    struct hash_entry entry;
+    u_int8_t *mac;
+
+    if(!itf || itf->node->type == SWITCH)
+        return;
+
+    cli_print(cli, "----------------------------------\n");
+    cli_print(cli, "ARP table entries: \n");
+
+    ht = itf->arp_table;
+    for(index = 0; index < ht->capacity; index++)
+    {
+        entry = ht->entries[index];
+        if(entry.key && entry.value)
+        {
+            mac = (u_int8_t *)entry.value;
+            cli_print(cli, "IP address: %s -- MAC address : %02X-%02X-%02X-%02X-%02X-%02X\n", entry.key,
+                                mac[0],
+                                mac[1],
+                                mac[2],
+                                mac[3],
+                                mac[4],
+                                mac[5]);
+        }
+    }
+    cli_print(cli, "----------------------------------\n");
+}
+
+void print_mac(struct cli_def *cli, u_int8_t *mac_addr)
 {
     if(!mac_addr)
         return;
-    cli_print(cli, "MAC address : %X-%X-%X-%X-%X-%X\n", mac_addr->addr[0],
-                                mac_addr->addr[1],
-                                mac_addr->addr[2],
-                                mac_addr->addr[3],
-                                mac_addr->addr[4],
-                                mac_addr->addr[5]);
+    cli_print(cli, "MAC address : %02X-%02X-%02X-%02X-%02X-%02X\n", 
+                                mac_addr[0],
+                                mac_addr[1],
+                                mac_addr[2],
+                                mac_addr[3],
+                                mac_addr[4],
+                                mac_addr[5]);
 }
 
-int set_ip_c(struct cli_def *cli, struct ip_addr *ip_addr, char *value)
+int set_ip_c(struct cli_def *cli, struct ip_struct *ip_addr, char *value)
 {
     u_int32_t ip;
     u_int8_t ip_parts[4];

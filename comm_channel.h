@@ -3,14 +3,19 @@
 #include <pthread.h>
 #include <sys/select.h>
 #include <netdb.h>
+#include <semaphore.h>
 #include "structures/dll.h"
 #include "structures/graph.h"
+#include "ethernet.h"
+#include "packet.h"
 #include "io_ops/io.h"
 
-#define MAX_PACKET_SIZE 1500
+
+//Used to cancel thread by main
+volatile long cancel_thread;
+sem_t mutex;
+
 #define LOCALHOST "localhost"
-
-
 struct fd_pool 
 {
     fd_set ready_set;
@@ -38,9 +43,10 @@ int close_sockets(struct graph * graph);
 void pool_init(struct graph *graph, struct fd_pool *pool);
 void accept_connections(struct fd_pool *pool);
 void process_connection(struct graph_node *node, struct io_buffer *io, int fd);
-int send_pckt_via_interface(char *packet, size_t pckt_size, struct interface *itf);
-int rcv_pack_at_node_via_interface(struct graph_node *node, struct interface *itf, char *packet, size_t pck_size);
+//Writing to buffer
+int write_via_interface(char *packet, size_t pckt_size, struct interface *itf);
+//prepare and send packet to the interface connected to input. Return zero on error.
+int send_packet(struct interface *snd_itf, char *packet, size_t pck_size, u_int16_t type, int is_broadcast);
 int get_send_socket(char *port_s);
-int create_modified_packet(char *init_pck, char *itf_name, char *fnl_pckt, size_t pckt_size);
-int broadcast_from(struct graph_node *node, char *packet, size_t pck_size, struct interface *except);
+int broadcast_from(struct graph_node *node, char *packet, size_t pck_size, u_int16_t type, struct interface *except);
 #endif

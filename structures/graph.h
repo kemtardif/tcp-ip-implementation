@@ -11,6 +11,7 @@
 #include <unistd.h>
 #include "dll.h"
 #include "net.h"
+#include "hash.h"
 
 #define GR_NAME_SIZE 32
 #define ND_NAME_SIZE 16
@@ -18,6 +19,12 @@
 #define INT_NAME_SIZE 16
 #define INIT_PORT 40000
 #define MAX_NODE 100
+
+//Types of nodes
+#define UNDEFINED 0
+#define HOST 1
+#define ROUTER 2
+#define SWITCH 3
 
 ////////////////Structure definitions////////////////////////////
 
@@ -32,23 +39,30 @@ struct graph {
 /*
 This  would be a networking device with LAN interfaces.
 In this case, a NULL interface is just an empty slot.
+If the node_net struct is set, this is a host with
+a listening port, otherwise it is a router/sitch. i.e.
+it has an application layer.
 */
 struct graph_node {
     char name[ND_NAME_SIZE];
+    int type;
     unsigned int socket_port;
     int socket_fd;
-    struct node_net node_net;
+    struct hash_table *switch_table;
     struct interface *interfaces[MAX_INTERFACE];
 };
 
 /*This would be a LAN interface, connected to a network device (graph_node)
-and connecting to another node via a physical link (link)
+and connecting to another node via a physical link (link).If if_net struct
+is set, it is a router, otherwise it is a switch.
 */
 struct interface {
     char name[INT_NAME_SIZE];
-    struct if_net if_net;
+    u_int8_t mac_addr[MAC_SIZE];
+    struct ip_struct ip;
     struct graph_node *node;
     struct graph_link *link;
+    struct hash_table *arp_table;
 };
 
 //This would be a physical link connecting two LAN interfaces
@@ -68,7 +82,7 @@ void graph_free(struct graph *graph);
 //Return a pointer to a link between nodes if it exist, otherwise return NULL
 struct graph_link *adjacent(struct graph_node *node1, struct graph_node *node2);
 //Return added node if it is not in graph, otherwise return NULL
-struct graph_node *add_node(struct graph *graph, char *name);
+struct graph_node *add_node(struct graph *graph, char *name, int type);
 //Remove and free node, its associated interfaces and all connected links
 void remove_node(struct graph *graph, struct graph_node *to_remove);
 //Attach an a new interface at first available slot. Return NULL otherwise
@@ -87,8 +101,7 @@ struct graph_link *add_link(struct interface *if1,
 void remove_link(struct graph_link *link);
 
 //////////////Networking functions on structures/////////////////
-void set_node_ip_addr(struct graph_node *node, u_int32_t ip, u_int8_t mask);
-void set_if_ip_addr(struct interface *interface, u_int32_t ip, u_int8_t mask);
+void set_itf_ip(struct interface *interface, u_int32_t ip, u_int8_t mask);
 struct interface *get_interface_in_subnet(struct graph_node *node, u_int32_t ip);
 
 ///////////////////Helper functions////////////////////////////
@@ -103,5 +116,8 @@ int next_available_interface_slot(struct graph_node *node);
 struct interface *find_interface_by_name(struct graph_node *node, char *name);
 //Free interface and associated link, if any.
 void free_interface(struct interface *interface);
+struct interface *find_source_interface_by_mac(struct graph_node *node, u_int8_t *mac_addr_src);
+void node_net_init(struct ip_struct *ip);
+void if_net_init(struct interface *itf);
 #endif 
 

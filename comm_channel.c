@@ -3,14 +3,21 @@
 int init_comm_channel(struct graph *graph)
 {
     pthread_t comm_pid;
-
     if(!graph)
         return 0;  
-    if(pthread_create(&comm_pid, NULL, comm_thread, (void *)graph))
-        return 0;
-    if(pthread_detach(comm_pid))
-        return 0;
 
+    sem_init(&mutex, 0, 1);
+    cancel_thread = 0;
+    if(pthread_create(&comm_pid, NULL, comm_thread, (void *)graph))
+    {
+        printf("%s\n", strerror(errno));
+        return 0;
+    }
+    if(pthread_detach(comm_pid))
+    {
+        printf("%s\n", strerror(errno));
+        return 0;
+    }
     graph->is_up = comm_pid;
     return 1;
 }
@@ -19,38 +26,54 @@ void close_comm_channel(struct graph *graph)
 {
     if(!graph)
         return;   
-
     close_sockets(graph);
 
     if(graph->is_up)
-        pthread_cancel(graph->is_up);
+    {
+        sem_wait(&mutex);
+        cancel_thread++;
+        sem_post(&mutex);   
+    }
     graph->is_up = 0;
-    printf("Comm channel is closed\n.");
 }
 
 void *comm_thread(void *arg)
 {
-    struct graph *graph = (struct graph *)arg;
-    struct fd_pool pool;
+    struct graph *graph;
+    struct fd_pool *pool;
+    if((graph = arg) == NULL)
+        return NULL;
     if(init_sockets(graph) == -1)
     {
         printf("Could not activate sockets.\n");
         return NULL;
     }
-    pool_init(graph, &pool);
+
+    if((pool = malloc(sizeof(struct fd_pool))) == NULL)
+        return NULL;
+    pool_init(graph, pool);
 
     while(1)
     {
-        pool.ready_set = pool.read_set;
+        sem_wait(&mutex);
+        if(cancel_thread)
+        {
+            cancel_thread--;
+            sem_post(&mutex); 
+            break;
+        }  
+        sem_post(&mutex); 
 
-        if((pool.ready = select(pool.max_fd + 1, &pool.ready_set, NULL, NULL, NULL)) == -1)
+        pool->ready_set = pool->read_set;
+        if((pool->ready = select(pool->max_fd + 1, &pool->ready_set, NULL, NULL, NULL)) == -1)
         {
             printf("select : %s", strerror(errno));
             close_sockets(graph);
             return NULL;
         }
-        accept_connections(&pool);
+        accept_connections(pool);
     }
+    free(pool);
     return NULL;
 }
 
@@ -61,17 +84,19 @@ int init_sockets(struct graph *graph)
 
     if(!graph)
         return -1;
+        
     item = graph->nodes->head;
 
     while(item)
     {
         node = (struct graph_node *)item->data;
+        
         node->socket_port = get_new_port(graph);
         node->socket_fd = init_comm_socket(node);
-        printf("NODE : %s -- PORT : %u -- FD : %i\n", node->name, node->socket_port, node->socket_fd);
-
+        printf("NODE : %s -- PORT : %u -- FD : %i IS CONNECTED.\n", node->name, node->socket_port, node->socket_fd);
         item = item->next;
     }
+
     return 1;
 }
 
@@ -126,7 +151,7 @@ void pool_init(struct graph *graph, struct fd_pool *pool)
             continue;
 
         pool->fd_pool[i] = node->socket_fd;
-        pool->nodes[i] = node;
+       pool->nodes[i] = node;
         FD_SET(pool->fd_pool[i], &pool->read_set);
 
         if(pool->fd_pool[i] > pool->max_fd)
@@ -202,7 +227,6 @@ void accept_connections(struct fd_pool *pool)
 
         if(FD_ISSET(fd, &pool->ready_set))
         {
-
             if((cd = accept(fd, (struct sockaddr *)&addr_in, &addr_len)) == -1)
             {
                 printf("accept : %s\n", strerror(errno));
@@ -225,89 +249,78 @@ that interface"
 void process_connection(struct graph_node *node, struct io_buffer *io_buf, int fd)
 {
     ssize_t n, actual;
-    char usr_buf[MAX_PACKET_SIZE];
+    char usr_buf[ETH_HEADER_SIZE + MTU];
     struct interface *itf;
 
     io_buf->fd = fd;
-    if((n = rio_readnb(io_buf, usr_buf, sizeof(usr_buf))) == -1)
+    if((n = rio_readnb(io_buf, usr_buf, sizeof(usr_buf))) <= 0)
     {
-        printf("rio_readnb : %s\n", strerror(errno));
+        if(n == -1)
+            printf("rio_readnb : %s\n", strerror(errno));
+        else
+            printf("Zero byte received.\n");
         io_buf->fd = 0;
         return;
-    }
-    else if (!n)
-        return;
-    if((itf = find_interface_by_name(node, usr_buf)) == NULL)
+    }  
+    if(!process_packet(node, (char *)usr_buf, n))
     {
-        printf("Interface %s not on node %s\n", usr_buf, node->name);
-        return;
-    }    
-    if(!rcv_pack_at_node_via_interface(node, itf, (char*)usr_buf + INT_NAME_SIZE, n - INT_NAME_SIZE))
-    {
-        printf("Processing error for packet from interface %s of node %s", itf->name, node->name);
+        printf("Processing error for packet from interface %s of node %s\n", itf->name, node->name);
     }
 }
 
+int send_packet(struct interface *snd_itf, char *packet, size_t pck_size, u_int16_t type, int is_broadcast)
+{
+    char *snd_pckt;
+    size_t snd_size;
+    int sent;
+
+    if((snd_pckt = prepare_packet(snd_itf, packet, pck_size, is_broadcast, &snd_size, type)) == NULL)
+        return 0;
+    //At this point, snd_pckt is malloced and need to be freed.
+    sent = write_via_interface(snd_pckt, snd_size, snd_itf);
+    free(snd_pckt);
+    return sent;
+}
+
+
 /*
-From the sending interface, we prepend the attached interface name to the data
-for the receiver to know on which interface it received the message.
-This the point where the packet is sent to the link layer.
+This the point where the packet is sent from the link layer to the physical layer.
 */
-int send_pckt_via_interface(char *packet, size_t pckt_size, struct interface *itf)
+int write_via_interface(char *packet, size_t pckt_size, struct interface *itf)
 {
     int fd;
     struct interface *attached;
     unsigned int port;
     char port_s[6];
-    char *modified_pckt;
     if(!packet || !pckt_size || !itf)
-        return -1;
+        return 0;
     if((attached = get_attached_interface(itf)) == NULL)
     {
         printf("Sending interface not linked.\n");
-        return -1;
+        return 0;
     }
     if((port = attached->node->socket_port) == 0)
     {
         printf("Attached node not connected.\n");
-        return -1;
+        return 0;
     }    
     if(sprintf(port_s, "%u", port) <= 0)
     {
         printf("Could not parse port.\n");
-        return -1;
+        return 0;
     }  
     if((fd = get_send_socket(port_s)) == -1)
     {
         printf("Could not create sending socket.\n");
-        return -1;
-    }
-    modified_pckt = malloc(INT_NAME_SIZE + pckt_size);
-    if(!create_modified_packet(packet, attached->name, modified_pckt, pckt_size))
-    {
-        printf("Could not create modified packet.\n");
-        free(modified_pckt);
-        return -1;
-    }
-    if(rio_writen(fd, (void *)modified_pckt, INT_NAME_SIZE + pckt_size) == -1)
-        printf("rio_writen : %s", strerror(errno));
-
-    free(modified_pckt);
-    close(fd);    
-    return 1;
-}
-
-/*
-This is the entry point from the link layer into a node.
-*/
-int rcv_pack_at_node_via_interface(struct graph_node *node, struct interface *itf, char *packet, size_t pck_size)
-{
-    if(!node || !itf || !packet || !pck_size)
         return 0;
-
-    printf("%ld bytes received on interface %s  of node %s\n", pck_size, itf->name, node->name);
-    printf("Data : %s\n",packet);
-
+    }
+    if(rio_writen(fd, (void *)packet, pckt_size) == -1)
+    {
+         printf("rio_writen : %s\n", strerror(errno));
+         close(fd); 
+         return 0;
+    }
+    close(fd);    
     return 1;
 }
 
@@ -342,17 +355,7 @@ int get_send_socket(char *port_s)
         return fd;
 }
 
-int create_modified_packet(char *init_pck, char *itf_name, char *fnl_pckt, size_t pckt_size)
-{
-    size_t i;
-    if(!init_pck || !itf_name || !fnl_pckt || !pckt_size)
-        return 0;
-    memcpy(fnl_pckt, itf_name, INT_NAME_SIZE);
-    memcpy(fnl_pckt + INT_NAME_SIZE, init_pck, pckt_size);
-    return 1;
-}
-
-int broadcast_from(struct graph_node *node, char *packet, size_t pck_size, struct interface *except)
+int broadcast_from(struct graph_node *node, char *packet, size_t pck_size, u_int16_t type, struct interface *except)
 {
     int i, count = 0;
     struct interface *current;
@@ -364,10 +367,11 @@ int broadcast_from(struct graph_node *node, char *packet, size_t pck_size, struc
         current = node->interfaces[i];
         if(!current || current == except)
             continue;
-        if(send_pckt_via_interface(packet, pck_size, current) != -1)
+        if(send_packet(current, packet, pck_size, type, 1))
             count++;
     }
     return count;
 }
+
 
 
