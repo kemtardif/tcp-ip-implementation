@@ -3,7 +3,7 @@
 #include <string.h>
 #include <limits.h>
 #include <arpa/inet.h>
- #include <errno.h>
+#include <errno.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <sys/wait.h>
@@ -11,6 +11,7 @@
 #include "structures/graph.h"
 #include "config.h"
 #include "comm_channel.h"
+#include "packet.h"
 
 
 #define PORT 8000
@@ -60,7 +61,6 @@ void print_switching_table(struct cli_def *cli, struct graph_node *node);
 void print_arp_table(struct cli_def *cli, struct interface *itf);
 void print_mac(struct cli_def *cli, u_int8_t *mac_addr);
 int set_ip_c(struct cli_def *cli, struct ip_struct *ip_addr, char *value);
-int is_port_valid(struct cli_def *cli, char *port_s);
 
 int main()
 {
@@ -666,9 +666,6 @@ int cmd_broadcast(struct cli_def *cli, const char *command, char *argv[], int ar
     char *packet = cli_get_optarg_value(cli, "packet", NULL);
     struct graph *graph = get_current_graph(cli);
     struct graph_node *nodeSrc;
-    struct interface *itf_except;
-    int i;
-
     if(!graph->is_up)
     {
          cli_error(cli, "\nNetwork not up.\n");
@@ -679,13 +676,8 @@ int cmd_broadcast(struct cli_def *cli, const char *command, char *argv[], int ar
         cli_error(cli, "\nSource not in graph.\n");
         return CLI_ERROR;
     }
-    itf_except = find_interface_by_name(nodeSrc, except);
-    if((i = broadcast_from(nodeSrc, packet, strlen(packet), IP_TYPE, itf_except)) == -1)
-    {
-        cli_error(cli, "\nCould not broadcast packets from node %s.\n", nodeSrc->name);
-        return CLI_OK;
-    } 
-    cli_print(cli, "Packet %s sent throught %i interface.\n", packet, i);
+    receive_from_L5(nodeSrc, packet, strlen(packet));
+    cli_print(cli, "Packet broadcast from L5 at node %s\n", nodeSrc->name);
     return CLI_OK;
 }
 
@@ -809,7 +801,6 @@ void print_graph(struct cli_def *cli, struct graph *graph)
 void print_node(struct cli_def *cli, struct graph_node *node)
 {
     cli_print(cli, "Node : %s\n", node->name);
-    cli_print(cli, "UDP port : %d\n", node->socket_port);
     print_type(cli, node->type);
     print_switching_table(cli, node);
 }
@@ -972,27 +963,6 @@ int set_ip_c(struct cli_def *cli, struct ip_struct *ip_addr, char *value)
     set_ip(ip_addr, ip, mask);
     cli_print(cli, "Ip address set.\n");
     return CLI_OK;
-}
-
-int is_port_valid(struct cli_def *cli, char *port_s)
-{
-    struct graph *graph = get_current_graph(cli);
-    struct doubly_linked_item *item;
-    struct graph_node *node;
-    unsigned int port;
-
-    if((port = (unsigned int)strtoul(port_s ,NULL, 10)) == 0)
-        return 0;
-    
-    item = graph->nodes->head;
-    while(item)
-    {
-        node = (struct graph_node *)item->data;
-        if(node->socket_port == port)
-            return 1;
-        item = item->next;
-    }
-    return 0;
 }
 
 

@@ -87,3 +87,34 @@ int are_mac_equal(u_int8_t *mac1, u_int8_t *mac2)
     }
     return 1;
 }
+
+char *ip_to_string(char * ip_str, size_t str_lnt, u_int32_t ip)
+{
+    u_int8_t parts[IP_SIZE];   
+    if(!ip_str || !str_lnt)
+        return NULL;
+
+    parts[0] = (ip >> 24) & 0xFF;
+    parts[1] = (ip >> 16) & 0xFF;
+    parts[2] = (ip >> 8) & 0xFF;
+    parts[3] = (ip >> 0) & 0xFF;
+
+    if(snprintf(ip_str, str_lnt, "%i.%i.%i.%i",parts[0], parts[1], parts[2], parts[3]) == -1)
+        return NULL;
+    return ip_str;
+}
+
+char *mac_to_string(char* mac_str, size_t str_lnt, u_int8_t* mac)
+{
+    if(!mac_str || !str_lnt || !mac)
+        return NULL;
+    if(snprintf(mac_str, str_lnt, "%02X-%02X-%02X-%02X-%02X-%02X", 
+                                mac[0],
+                                mac[1],
+                                mac[2],
+                                mac[3],
+                                mac[4],
+                                mac[5]) == -1)
+        return NULL;
+    return mac_str;
+}

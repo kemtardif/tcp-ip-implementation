@@ -6,7 +6,6 @@ struct interface *get_attached_interface(struct interface *interface)
 
     if(!interface) 
         return NULL;
-
     link = interface->link;
     if(!link)
         return NULL;
@@ -137,8 +136,6 @@ struct graph_node *add_node(struct graph *graph, char *name, int type)
 
     strncpy(new_graph_node->name, name, ND_NAME_SIZE);
     new_graph_node->name[ND_NAME_SIZE - 1] = '\0';
-    new_graph_node->socket_fd = -1;
-    new_graph_node->socket_port = 0;
     new_graph_node->type = type;
 
 
@@ -168,9 +165,6 @@ void remove_node(struct graph *graph, struct graph_node *to_remove)
 
     for(i = 0; i < MAX_INTERFACE; i ++)
         free_interface(to_remove->interfaces[i]);
-
-    if(to_remove->socket_fd > 0)
-        close(to_remove->socket_fd);
     remove_from_list_by_data(graph->nodes, to_remove);
     if(to_remove->type == SWITCH)
         free_hash_table(to_remove->switch_table);
@@ -214,6 +208,12 @@ struct interface  *add_interface_at_index(struct graph_node *node, unsigned int 
         free_interface(interface);
         return NULL;
     }
+    if((interface->send_queue = init_queue(MAX_QUEUE)) == NULL)
+    {
+        free(interface->arp_table);
+        free(interface);
+        return NULL;
+    }
     
     if_net_init(interface);
     generate_mac_addr(interface->mac_addr);
@@ -223,13 +223,13 @@ struct interface  *add_interface_at_index(struct graph_node *node, unsigned int 
     
     interface->link = NULL;
     interface->node = node;
+    interface->port = 0;
 
     interface->arp_table = NULL;
     if(interface->node->type != SWITCH)
-        interface->arp_table = init_hash_table(SUBNET_CAPACITY);
+        interface->arp_table = init_hash_table(SUBNET_CAPACITY);                
 
     node->interfaces[index] = interface;
-
     return interface;
 }
 
@@ -252,7 +252,7 @@ void remove_interface_by_name(struct graph_node *node, char *name)
         if(!itf)
             continue;
         if(!strncmp(itf->name, if_name, strlen(itf->name)))
-        {
+        {   
             free_interface(itf);
             _node->interfaces[i] = NULL;
             return;
@@ -262,16 +262,23 @@ void remove_interface_by_name(struct graph_node *node, char *name)
 
 void free_interface(struct interface *interface)
 {
+    struct send_packet *packet;
     if(!interface)
         return;
     if(interface->link)
         remove_link(interface->link);
     if(interface->node->type != SWITCH)
         free_hash_table(interface->arp_table);
+    while((packet = (struct send_packet *)pop(interface->send_queue)) != NULL)
+    {
+        free(packet->packet);
+        free(packet);
+    }
+    free_queue(interface->send_queue);
     free(interface);   
 }
 
-struct interface *find_source_interface_by_mac(struct graph_node *node, u_int8_t *mac_addr_src)
+struct interface *find_src_interface_by_src_mac(struct graph_node *node, u_int8_t *mac_addr_src)
 {
     int i;
     struct interface *itf, *srcItf;
@@ -290,6 +297,17 @@ struct interface *find_source_interface_by_mac(struct graph_node *node, u_int8_t
             return srcItf;
     }
     return NULL;
+}
+
+struct interface *find_dest_interface_by_src_mac(struct graph_node *node, u_int8_t *mac_addr_src)
+{
+    struct interface *itf;
+    if(!node || !mac_addr_src)
+        return NULL;
+     //Find source interface from eth frame
+    if((itf = find_src_interface_by_src_mac(node, mac_addr_src)) == NULL)
+        return NULL;;
+    return get_attached_interface(itf);    
 }
 
 struct graph_link  *add_link(struct interface *if1,

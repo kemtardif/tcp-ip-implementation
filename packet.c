@@ -1,48 +1,43 @@
 #include "packet.h"
-//Construct packet by adding layers of headers.
-void *prepare_packet(struct interface *snd_itf, 
-                    char *data_pckt, 
-                    size_t data_size, 
-                    int is_broadcast, 
-                    size_t *snd_size,
-                    u_int16_t type)
+
+
+void add_packet_to_send_queue(struct interface *snd_itf, char *packet, size_t pckt_size)
 {
-    char *snd_pckt;
-    if(!snd_itf || !data_pckt || !data_size || !snd_size || !type)
-        return NULL;
-    //Ethernet protocol determine max size of packets (1 MTU)
-    if((snd_pckt = malloc(MAX_ETH_SIZE)) == NULL)
-        return NULL;
-
-    //Copy initial data into sending packet;
-    memset((void *)snd_pckt, 0, MAX_ETH_SIZE);
-    if(data_size > MAX_ETH_SIZE)
-        data_size = MAX_ETH_SIZE;
-    memcpy(snd_pckt, data_pckt, data_size);
-    *snd_size = data_size;
-
-    //each layer do their thing on buffer free snd_pckt in case of error
-    if(!prepare_ethernet_packet(snd_itf, snd_pckt, snd_size, type, is_broadcast))
+    char *send_pckt;
+    struct send_packet *queue_item;
+    if(!snd_itf || !packet || !pckt_size)
+        return;
+    if((queue_item = malloc(sizeof(struct send_packet))) == NULL)
+         return;       
+    if((send_pckt = malloc(pckt_size)) == NULL)
     {
-        free(snd_pckt);
-        return NULL;
+        free(queue_item);
+        return;
     }
-    return snd_pckt;
-}
+    memcpy(send_pckt, packet, pckt_size);
 
-int process_packet(struct graph_node *node, char *pckt, size_t pckt_size)
+    queue_item->packet = send_pckt;
+    queue_item->pckt_size = pckt_size;
+    queue_item->retransmit = 4;
+
+    if(!push(snd_itf->send_queue, (void *)queue_item))
+        printf("Sending queue full at interface %s. Packet dropped.\n", snd_itf->name);
+}
+void broadcast_to_send_queues(struct graph_node *node, struct interface *except, 
+                                    char *packet, size_t pckt_size)
 {
-    char *data;
-    size_t data_size;
-    int type;
-
-    if(!node || !pckt|| !pckt_size)
-         return 0;  
-    data = pckt;
-    data_size = pckt_size;
-
-    if((data = process_ethernet_packet(node, data, &data_size, &type)) == NULL)
-        return 0;
-    return 1;
+    int i;
+    struct interface *send_to;
+    if(!node || !packet || !pckt_size)
+        return;
+    for(i = 0; i < MAX_INTERFACE; i ++)
+    {
+        send_to = node->interfaces[i];
+        if(!send_to || send_to == except)
+            continue;
+        add_packet_to_send_queue(send_to, packet, pckt_size);
+    }
 }
+
+
 

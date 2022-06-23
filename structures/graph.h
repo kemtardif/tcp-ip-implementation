@@ -12,19 +12,28 @@
 #include "dll.h"
 #include "net.h"
 #include "hash.h"
+#include "queue.h"
 
 #define GR_NAME_SIZE 32
 #define ND_NAME_SIZE 16
 #define MAX_INTERFACE 10
 #define INT_NAME_SIZE 16
-#define INIT_PORT 40000
 #define MAX_NODE 100
+#define MAX_QUEUE 8
 
 //Types of nodes
 #define UNDEFINED 0
 #define HOST 1
 #define ROUTER 2
 #define SWITCH 3
+
+//Wait type
+#define NO_WAIT 0
+#define ARP_WAIT 1
+
+//send type
+#define READY 1
+#define WAIT
 
 ////////////////Structure definitions////////////////////////////
 
@@ -39,15 +48,11 @@ struct graph {
 /*
 This  would be a networking device with LAN interfaces.
 In this case, a NULL interface is just an empty slot.
-If the node_net struct is set, this is a host with
-a listening port, otherwise it is a router/sitch. i.e.
-it has an application layer.
+Type field determine if its either a host, switch or router.
 */
 struct graph_node {
     char name[ND_NAME_SIZE];
     int type;
-    unsigned int socket_port;
-    int socket_fd;
     struct hash_table *switch_table;
     struct interface *interfaces[MAX_INTERFACE];
 };
@@ -60,9 +65,19 @@ struct interface {
     char name[INT_NAME_SIZE];
     u_int8_t mac_addr[MAC_SIZE];
     struct ip_struct ip;
+    unsigned int port;
     struct graph_node *node;
     struct graph_link *link;
     struct hash_table *arp_table;
+    struct queue *send_queue;
+};
+/*Those are packet ready to be sent on an interface
+*/
+struct send_packet
+{
+    char *packet;
+    size_t pckt_size;
+    int retransmit;
 };
 
 //This would be a physical link connecting two LAN interfaces
@@ -72,6 +87,7 @@ struct graph_link
     struct interface *if_2;
     unsigned int cost;
 };
+
 
 
 ////////////////Functions///////////////////////////////
@@ -116,7 +132,8 @@ int next_available_interface_slot(struct graph_node *node);
 struct interface *find_interface_by_name(struct graph_node *node, char *name);
 //Free interface and associated link, if any.
 void free_interface(struct interface *interface);
-struct interface *find_source_interface_by_mac(struct graph_node *node, u_int8_t *mac_addr_src);
+struct interface *find_src_interface_by_src_mac(struct graph_node *node, u_int8_t *mac_addr_src);
+struct interface *find_dest_interface_by_src_mac(struct graph_node *node, u_int8_t *mac_addr_src);
 void node_net_init(struct ip_struct *ip);
 void if_net_init(struct interface *itf);
 #endif 

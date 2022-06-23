@@ -3,17 +3,12 @@
 #include <sys/types.h>
 #include <stdlib.h>
 #include "structures/graph.h"
-#include "ethernet.h"
+#include "structures/queue.h"
 
 #define MTU 1500
+//Will malloc a copy of the packet and add it to the send_buffer of the interface
+void add_packet_to_send_queue(struct interface *snd_itf, char *packet, size_t pckt_size);
+//Will malloc a packet for each interface on node not except and add to send_list
+void broadcast_to_send_queues(struct graph_node *node, struct interface *except, char *packet, size_t pckt_size);
 
-
-//Prepare packet for transmission. Return pointer to packet.
-void *prepare_packet(struct interface *snd_itf, 
-                    char *data_pckt, 
-                    size_t data_size, 
-                    int is_broadcast, 
-                    size_t *snd_size,
-                    u_int16_t type);
-int process_packet(struct graph_node *node, char *pckt, size_t pckt_size);
 #endif

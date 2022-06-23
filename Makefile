@@ -9,9 +9,11 @@ OBJS=$(ODIR)/net.o\
 	 $(ODIR)/graph.o\
 	 $(ODIR)/graph-topologies.o\
 	 $(ODIR)/io.o\
-	 $(ODIR)/ethernet.o\
 	 $(ODIR)/packet.o\
+	 $(ODIR)/ethernet.o\
+	 $(ODIR)/switch.o\
 	 $(ODIR)/hash.o\
+	 $(ODIR)/queue.o\
 	 $(ODIR)/comm_channel.o
 
 directories : 
@@ -24,6 +26,8 @@ $(ODIR)/comm_channel.o:comm_channel.c
 	$(CC) $(CFlags) -c -I $(strct) comm_channel.c -o $(ODIR)/comm_channel.o
 $(ODIR)/packet.o:packet.c
 	$(CC) $(CFlags) -c -I $(strct) packet.c -o $(ODIR)/packet.o
+$(ODIR)/switch.o:switch.c
+	$(CC) $(CFlags) -c -I $(strct) switch.c -o $(ODIR)/switch.o
 $(ODIR)/ethernet.o:ethernet.c
 	$(CC) $(CFlags) -c -I $(strct) ethernet.c -o $(ODIR)/ethernet.o
 $(ODIR)/io.o:$(io)/io.c
@@ -38,6 +42,8 @@ $(ODIR)/graph.o:$(strct)/graph.c
 	$(CC) $(CFlags) -c -I $(strct) $(strct)/graph.c -o $(ODIR)/graph.o	
 $(ODIR)/hash.o:$(strct)/hash.c
 	$(CC) $(CFlags) -c -I $(strct) $(strct)/hash.c -o $(ODIR)/hash.o
+$(ODIR)/queue.o:$(strct)/queue.c
+	$(CC) $(CFlags) -c -I $(strct) $(strct)/queue.c -o $(ODIR)/queue.o
 
 all:directories $(OBJS) main.o main.exe
 clean :

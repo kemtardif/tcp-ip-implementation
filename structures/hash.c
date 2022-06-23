@@ -37,6 +37,8 @@ void free_hash_table(struct hash_table *ht)
 //Use linear Search if key wasn't found at index
 void *get_value(struct hash_table *ht, char *key)
 {
+    if(!key)
+        return NULL;
     u_int64_t hash = hash_key(key);
     size_t index = (size_t)(hash % (u_int64_t)ht->capacity);
     struct hash_entry entry = ht->entries[index];
@@ -56,7 +58,7 @@ void *get_value(struct hash_table *ht, char *key)
 //Expand capacity if no more space
 char *set_value(struct hash_table *ht, char *key, void *value)
 {
-    if(!value)
+    if(!key || !value)
         return NULL;
 
     if(ht->length > (ht->capacity / 2))

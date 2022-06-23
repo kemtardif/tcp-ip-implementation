@@ -7,6 +7,8 @@
 
 #define MAC_SIZE 6
 #define IP_SIZE 4
+#define MAX_IP_STRING 16
+#define MAX_MAC_STRING 18
 
 #define IP_TYPE (u_int16_t)0x0800
 #define ARP_TYPE (u_int16_t)0x0806
@@ -26,5 +28,7 @@ void generate_mac_addr(u_int8_t *mac_addr);
 void generate_broadcast_addr(u_int8_t *mac_addr);
 int is_broadcast(u_int8_t *mac_addr);
 int are_mac_equal(u_int8_t *mac1, u_int8_t *mac2);
+char *ip_to_string(char * ip_str, size_t str_lnt, u_int32_t ip);
+char *mac_to_string(char * mac_str, size_t str_lnt, u_int8_t *mac);
 
 #endif
