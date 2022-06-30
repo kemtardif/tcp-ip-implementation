@@ -11,12 +11,12 @@ int prepare_ethernet_packet(char *ethernet_packet,
     //Initialize ethernet_packet to zeros
     memset(ethernet_packet, 0, MAX_ETH_SIZE);
     *snd_size = 0;    
-     //Sanitize
-    if(!sanitize_data_pckt(data_pckt, data_size, snd_size))
-        return 0;
     //Add ethernet headers 
-    if(!append_eth_headers(ethernet_packet, data_pckt, src_mac, dst_mac, type, snd_size))
+    if(!append_eth_headers(ethernet_packet, data_pckt, src_mac, dst_mac, type, data_size))
         return 0;
+     //Sanitize
+    if(!sanitize_data_pckt_for_eth(data_pckt, data_size, snd_size))
+        return 0;;
     return 1;
 }
 void *remove_ethernet_headers(struct eth_frame *eth_frame, char *pckt, size_t pckt_size)
@@ -27,15 +27,16 @@ void *remove_ethernet_headers(struct eth_frame *eth_frame, char *pckt, size_t pc
         return NULL;
     return eth_frame->data;
 }
+
 int  append_eth_headers(char *ethernet_packet,
                             char *data_pckt, 
                             u_int8_t *src_mac, 
                             u_int8_t *dst_mac,
                             u_int16_t type,
-                            size_t *snd_size)
+                            size_t data_size)
 {
     int i;
-    if(!ethernet_packet || !data_pckt || !src_mac || !dst_mac || !type || !snd_size)
+    if(!ethernet_packet || !data_pckt || !src_mac || !dst_mac || !type || !data_size)
         return 0; 
     //Copy destination MAC in packet
     for(i = 0; i < MAC_SIZE; i++)
@@ -53,9 +54,17 @@ int  append_eth_headers(char *ethernet_packet,
     memcpy(ethernet_packet, &type, sizeof(u_int16_t));
     ethernet_packet += sizeof(u_int16_t);
     //Copy data
-    memcpy(ethernet_packet, data_pckt, *snd_size);
-    *snd_size += ETH_HEADER_SIZE;  
+    memcpy(ethernet_packet, data_pckt, data_size);  
     return 1;   
+}
+//Pass to upper layers if destination MAC is broadcast or rcv_itf MAC
+int can_process_eth(struct interface *rcv_itf, struct eth_frame *eth_frame)
+{
+    if(is_broadcast(eth_frame->destination))
+        return 1;
+    if(are_mac_equal(rcv_itf->mac_addr, eth_frame->destination))
+        return 1;
+    return 0;
 }
 
 int get_eth_frame(struct eth_frame *eth_frame, char *eth_pckt, size_t eth_size)
@@ -89,7 +98,7 @@ int get_eth_frame(struct eth_frame *eth_frame, char *eth_pckt, size_t eth_size)
 Ensure data has the right size i.e. between 46 and 1500 bytes. 
 If initial data is smaller, add junk.
 */
-int sanitize_data_pckt(char *data_pckt, size_t data_size, size_t *pck_size)
+int sanitize_data_pckt_for_eth(char *data_pckt, size_t data_size, size_t *pck_size)
 {
     size_t size;
     if(!data_pckt || !data_size || !pck_size)
@@ -98,7 +107,8 @@ int sanitize_data_pckt(char *data_pckt, size_t data_size, size_t *pck_size)
         size = MIN_DATA_SIZE; //Add memset 0's as junk
     else if (size > MTU)
         size = MTU; //Remove surplus
-    *pck_size = size;
+    *pck_size += ETH_HEADER_SIZE;
+    *pck_size += size;
     return 1;
 }
 

@@ -20,6 +20,7 @@
 #define INT_NAME_SIZE 16
 #define MAX_NODE 100
 #define MAX_QUEUE 8
+#define ARP_BUFFER_LENGTH 4
 
 //Types of nodes
 #define UNDEFINED 0
@@ -57,6 +58,13 @@ struct graph_node {
     struct interface *interfaces[MAX_INTERFACE];
 };
 
+struct arp_buffer_item
+{
+    u_int32_t target_ip;
+    char *packet;
+    size_t pckt_size;
+};
+
 /*This would be a LAN interface, connected to a network device (graph_node)
 and connecting to another node via a physical link (link).If if_net struct
 is set, it is a router, otherwise it is a switch.
@@ -69,6 +77,7 @@ struct interface {
     struct graph_node *node;
     struct graph_link *link;
     struct hash_table *arp_table;
+    struct arp_buffer_item arp_buffer[ARP_BUFFER_LENGTH];
     struct queue *send_queue;
 };
 /*Those are packet ready to be sent on an interface
@@ -87,6 +96,7 @@ struct graph_link
     struct interface *if_2;
     unsigned int cost;
 };
+
 
 
 

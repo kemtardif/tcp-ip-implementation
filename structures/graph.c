@@ -168,6 +168,7 @@ void remove_node(struct graph *graph, struct graph_node *to_remove)
     remove_from_list_by_data(graph->nodes, to_remove);
     if(to_remove->type == SWITCH)
         free_hash_table(to_remove->switch_table);
+
     free(to_remove);
 
     graph->node_count--;
@@ -192,6 +193,7 @@ struct interface *add_interface(struct graph_node *node, char *name)
 
 struct interface  *add_interface_at_index(struct graph_node *node, unsigned int index, char *name)
 {
+    int i;
     struct interface *interface;
 
     if(!node)
@@ -203,11 +205,7 @@ struct interface  *add_interface_at_index(struct graph_node *node, unsigned int 
 
     if((interface = malloc(sizeof(struct interface))) == NULL)
         return NULL;
-    if((interface->arp_table = init_hash_table(SUBNET_CAPACITY)) == NULL)
-    {
-        free_interface(interface);
-        return NULL;
-    }
+ 
     if((interface->send_queue = init_queue(MAX_QUEUE)) == NULL)
     {
         free(interface->arp_table);
@@ -227,9 +225,17 @@ struct interface  *add_interface_at_index(struct graph_node *node, unsigned int 
 
     interface->arp_table = NULL;
     if(interface->node->type != SWITCH)
-        interface->arp_table = init_hash_table(SUBNET_CAPACITY);                
+        interface->arp_table = init_hash_table(SUBNET_CAPACITY);
 
+    for(i = 0; i < ARP_BUFFER_LENGTH; i++)
+    {
+        interface->arp_buffer[i].target_ip = 0;
+        interface->arp_buffer[i].packet = NULL;
+        interface->arp_buffer[i].pckt_size = 0;
+    }
+        
     node->interfaces[index] = interface;
+
     return interface;
 }
 
@@ -269,11 +275,6 @@ void free_interface(struct interface *interface)
         remove_link(interface->link);
     if(interface->node->type != SWITCH)
         free_hash_table(interface->arp_table);
-    while((packet = (struct send_packet *)pop(interface->send_queue)) != NULL)
-    {
-        free(packet->packet);
-        free(packet);
-    }
     free_queue(interface->send_queue);
     free(interface);   
 }

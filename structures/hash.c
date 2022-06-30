@@ -16,6 +16,7 @@ struct hash_table *init_hash_table(size_t capacity)
     {
          ht->entries[i].key = NULL;
          ht->entries[i].value = NULL;
+         ht->entries[i].to_free = 0;
     }
     ht->capacity = capacity;
     ht->length = 0;
@@ -26,10 +27,14 @@ void free_hash_table(struct hash_table *ht)
 {   int i;
     if(!ht)
         return;
-    for(i = 0; i++; i < ht->capacity)
+    for(i = 0; i < ht->capacity; i++)
     {
         if(ht->entries[i].key)
             free(ht->entries[i].key);
+        if(ht->entries[i].to_free)
+            free(ht->entries[i].value);
+        ht->entries[i].key = NULL;
+        ht->entries[i].value = NULL;
     }
     free(ht->entries);
     free(ht);
@@ -47,7 +52,7 @@ void *get_value(struct hash_table *ht, char *key)
     {
         if(!strcmp(entry.key, key))
             return entry.value;
-        index ++;
+        index++;
         //Warp at end
         if(index >= ht->capacity)
             index = 0;
@@ -56,7 +61,7 @@ void *get_value(struct hash_table *ht, char *key)
     return NULL;
 }
 //Expand capacity if no more space
-char *set_value(struct hash_table *ht, char *key, void *value)
+char *set_value(struct hash_table *ht, char *key, void *value, int to_free)
 {
     if(!key || !value)
         return NULL;
@@ -67,18 +72,22 @@ char *set_value(struct hash_table *ht, char *key, void *value)
             return NULL;
     }
     return set_value_entry(ht->entries, ht->capacity, key, value,
-                        &ht->length);
+                                 &ht->length, to_free);
 }
 
-char *set_value_entry(struct hash_entry *entries, size_t capacity, char *key, void *value, size_t *length)
+char *set_value_entry(struct hash_entry *entries, size_t capacity, char *key, void *value, size_t *length, int to_free)
 {
     u_int64_t hash = hash_key(key);
     size_t index = (size_t)(hash % (u_int64_t)capacity);
     struct hash_entry entry = entries[index];
+    char *new_key;
 
     while (entry.key) {
         if (!strcmp(key, entry.key)) {
+            if(entries[index].to_free)
+                free(entries[index].value);
             entries[index].value = value;
+            entries[index].to_free = to_free;
             return entry.key;
         }
 
@@ -87,17 +96,16 @@ char *set_value_entry(struct hash_entry *entries, size_t capacity, char *key, vo
             index = 0;
         entry = entries[index];
     }
-
     if(!length)
         return NULL;
     //Copy key
-    if((key = strdup(key)) == NULL)
+    if((new_key = strdup(key)) == NULL)
         return NULL;
-
-    entries[index].key = key;
+    entries[index].key = new_key;
     entries[index].value = value;
+    entries[index].to_free = to_free;
     (*length)++;
-    return key;
+    return new_key;
 }
 int expand_hash_table(struct hash_table *ht)
 {
@@ -118,7 +126,7 @@ int expand_hash_table(struct hash_table *ht)
         n_entries->value = NULL;
     }
 
-    //copy old values in n_entrie
+    //TO DO : copy old values in n_entrie
 
     free(ht->entries);
     ht->entries = n_entries;

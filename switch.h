@@ -10,7 +10,7 @@
     in a LAN. It doesn't buffer packet or use any protocol, it just
     forward packet using its switch table.
 */
-void process_switch(struct interface *rcv_itf, struct eth_frame *eth_frame, char *packet, size_t pckt_size);
+void process_L2_switch(struct interface *rcv_itf, struct eth_frame *eth_frame, char *packet, size_t pckt_size);
 /*
 
     Self-learning switching table. When a packet arrive

@@ -9,6 +9,8 @@ OBJS=$(ODIR)/net.o\
 	 $(ODIR)/graph.o\
 	 $(ODIR)/graph-topologies.o\
 	 $(ODIR)/io.o\
+	 $(ODIR)/arp.o\
+	 $(ODIR)/ip.o\
 	 $(ODIR)/packet.o\
 	 $(ODIR)/ethernet.o\
 	 $(ODIR)/switch.o\
@@ -24,6 +26,10 @@ main.o:main.c
 	$(CC) $(CFlags) -c main.c -o main.o
 $(ODIR)/comm_channel.o:comm_channel.c
 	$(CC) $(CFlags) -c -I $(strct) comm_channel.c -o $(ODIR)/comm_channel.o
+$(ODIR)/arp.o:arp.c
+	$(CC) $(CFlags) -c -I $(strct) arp.c -o $(ODIR)/arp.o
+$(ODIR)/ip.o:ip.c
+	$(CC) $(CFlags) -c -I $(strct) ip.c -o $(ODIR)/ip.o
 $(ODIR)/packet.o:packet.c
 	$(CC) $(CFlags) -c -I $(strct) packet.c -o $(ODIR)/packet.o
 $(ODIR)/switch.o:switch.c

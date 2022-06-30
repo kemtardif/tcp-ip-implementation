@@ -33,13 +33,11 @@ int push(struct queue *queue, void *item)
 {
     if(!queue)
         return 0;
-        printf("Push INIT\n");
     sem_wait(&queue->slots);
     sem_wait(&queue->mutex);
     queue->array[(++queue->rear) % queue->capacity] = item;
     sem_post(&queue->mutex);
     sem_post(&queue->items);
-    printf("Push END\n");
     return 1;
 }
 void *pop(struct queue *queue)
@@ -47,12 +45,11 @@ void *pop(struct queue *queue)
     void *item;
     if(!queue)
         return NULL;
-    printf("POP INIT\n");
+    //Used to wait for item
     sem_wait(&queue->items);
     sem_wait(&queue->mutex);
     item = queue->array[(++queue->front) % queue->capacity];
     sem_post(&queue->mutex);
     sem_post(&queue->slots);
-    printf("POP END\n");
     return item;
 }

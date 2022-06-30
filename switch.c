@@ -1,14 +1,13 @@
 #include "switch.h"
 
 
-void process_switch(struct interface *rcv_itf, struct eth_frame *eth_frame, char *packet, size_t pckt_size)
+void process_L2_switch(struct interface *rcv_itf, struct eth_frame *eth_frame, char *packet, size_t pckt_size)
 {
     struct interface *send_to = NULL;
     char mac_str[MAX_MAC_STRING];
     int broadcast = 0;
     if(!rcv_itf || !eth_frame || !packet || !pckt_size)
         return;
-    printf("Packet processed by switch %s\n", rcv_itf->node->name);
     update_switch_table(rcv_itf, eth_frame);
 
     mac_to_string(mac_str, MAX_MAC_STRING, eth_frame->destination);
@@ -38,5 +37,5 @@ void update_switch_table(struct interface *rcv_itf, struct eth_frame *eth_frame)
         return;
     //Add item (MAC source, receiving interface) if not in switch table
     if(!get_value(node->switch_table, mac_str))
-        set_value(node->switch_table, mac_str, rcv_itf);
+       set_value(node->switch_table, mac_str, rcv_itf, N_FREE);
 }

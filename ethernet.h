@@ -38,7 +38,6 @@ int prepare_ethernet_packet(char *ethernet_packet,
 void *remove_ethernet_headers(struct eth_frame *eth_frame, char *pckt, size_t pckt_size);
 /*
 Remove ethernet headers from incoming packet and store them in struct. 
-The data part is stored in data_pckt.
 The data pointer in eth_frame points to inner data. 
 */
 int get_eth_frame(struct eth_frame *eth_frame, char *eth_pckt, size_t eth_size);
@@ -53,8 +52,9 @@ int append_eth_headers(char *ethernet_packet,
                             u_int8_t *src_mac, 
                             u_int8_t *dst_mac,
                             u_int16_t type,
-                            size_t *snd_size);
+                            size_t pckt_size);
+int can_process_eth(struct interface *rcv_itf, struct eth_frame *eth_frame);
 //Ensure data packet is between 46 and 1500 bytes
-int sanitize_data_pckt(char *data_pckt, size_t data_size, size_t *pck_size);
+int sanitize_data_pckt_for_eth(char *data_pckt, size_t data_size, size_t *pck_size);
 
 #endif

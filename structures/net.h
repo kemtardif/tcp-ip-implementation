@@ -10,7 +10,7 @@
 #define MAX_IP_STRING 16
 #define MAX_MAC_STRING 18
 
-#define IP_TYPE (u_int16_t)0x0800
+#define IPV4_TYPE (u_int16_t)0x0800
 #define ARP_TYPE (u_int16_t)0x0806
 
 struct ip_struct {

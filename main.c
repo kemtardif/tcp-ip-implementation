@@ -46,7 +46,7 @@ int cmd_dump(struct cli_def *cli, const char *command, char *argv[], int argc);
 int cmd_show_node(struct cli_def *cli, const char *command, char *argv[], int argc);
 int cmd_show_switch(struct cli_def *cli, const char *command, char *argv[], int argc);
 int cmd_show_arp(struct cli_def *cli, const char *command, char *argv[], int argc);
-int cmd_broadcast(struct cli_def *cli, const char *command, char *argv[], int argc);
+int cmd_send(struct cli_def *cli, const char *command, char *argv[], int argc);
 int graph4graph_validator(struct cli_def *cli, const char *name, const char *value);
 int graph_validator(struct cli_def *cli, const char *name, const char *value);
 int value_validator(struct cli_def *cli, const char *name, const char *value);
@@ -174,10 +174,10 @@ void run(int fd)
     cli_register_command(cli, NULL, "dump", cmd_dump, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Dump current network informations");
     
     //Send packet by src and dst ports
-    c = c = cli_register_command(cli, NULL, "broadcast", cmd_broadcast, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Broadcast message from a given node");
+    c = c = cli_register_command(cli, NULL, "send", cmd_send, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Send message between nodes");
     o = cli_register_optarg(c, "from", CLI_CMD_ARGUMENT, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Source node", NULL, graph_validator, NULL);
-    o = cli_register_optarg(c, "packet", CLI_CMD_ARGUMENT, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Packet to send", NULL, value_validator, NULL);
-    o = cli_register_optarg(c, "except", CLI_CMD_OPTIONAL_ARGUMENT, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Interface to ignore", NULL, value_validator, NULL);
+    o = cli_register_optarg(c, "to", CLI_CMD_ARGUMENT, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Destination node", NULL, value_validator, NULL);
+    o = cli_register_optarg(c, "data", CLI_CMD_ARGUMENT, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, "Data to send", NULL, value_validator, NULL);
 
     //print structures
     c = cli_register_command(cli, NULL, "show", NULL, PRIVILEGE_UNPRIVILEGED, MODE_EXEC, NULL);
@@ -372,7 +372,6 @@ int cmd_remove_network(struct cli_def *cli, const char *command, char *argv[], i
         cli_error(cli, "You must first put down the network.\n");
         return CLI_ERROR;
     }
-
     graph_free(graph);
 
     cntx = (struct context *)cli_get_context(cli);
@@ -659,25 +658,51 @@ int cmd_show_arp(struct cli_def *cli, const char *command, char *argv[], int arg
     return CLI_OK;
 }
 
-int cmd_broadcast(struct cli_def *cli, const char *command, char *argv[], int argc)
+int cmd_send(struct cli_def *cli, const char *command, char *argv[], int argc)
 {
+    int i;
     char *from = cli_get_optarg_value(cli, "from", NULL);
-    char *except =  cli_get_optarg_value(cli, "except", NULL);
-    char *packet = cli_get_optarg_value(cli, "packet", NULL);
+    char *to =  cli_get_optarg_value(cli, "to", NULL);
+    char *data = cli_get_optarg_value(cli, "data", NULL);
     struct graph *graph = get_current_graph(cli);
-    struct graph_node *nodeSrc;
+    struct graph_node *nodeSrc, *nodeDst;
+    struct interface *dst_itf = NULL;
+
     if(!graph->is_up)
     {
          cli_error(cli, "\nNetwork not up.\n");
         return CLI_ERROR;
     }
-    if((nodeSrc = find_node_by_name(graph, from)) == NULL)
+    if(((nodeSrc = find_node_by_name(graph, from)) == NULL)
+        || nodeSrc->type != HOST)
     {
         cli_error(cli, "\nSource not in graph.\n");
         return CLI_ERROR;
     }
-    receive_from_L5(nodeSrc, packet, strlen(packet));
-    cli_print(cli, "Packet broadcast from L5 at node %s\n", nodeSrc->name);
+    if(((nodeDst = find_node_by_name(graph, to)) == NULL)
+        || nodeDst->type != HOST)
+    {
+        cli_error(cli, "\nDestination not in graph.\n");
+        return CLI_ERROR;
+    }
+    if(nodeSrc == nodeDst)
+    {
+        cli_error(cli, "Source must not be destination.\n");
+        return CLI_ERROR;
+    }
+    //At this point we know a host has a single interface
+    for(i = 0; i < MAX_INTERFACE; i++)
+    {
+        if((dst_itf = nodeDst->interfaces[i])!= NULL)
+            break;
+    }
+    if(!dst_itf)
+    {
+        cli_print(cli, "Destination %s unreachable\n", nodeDst->name);
+        return CLI_ERROR;
+    }
+    receive_from_L5(nodeSrc, data, strlen(data), dst_itf->ip.ip_addr);
+    cli_print(cli, "Packet sent from node %s\n", nodeSrc->name);
     return CLI_OK;
 }
 
@@ -900,6 +925,7 @@ void print_arp_table(struct cli_def *cli, struct interface *itf)
     struct hash_table *ht;
     struct hash_entry entry;
     u_int8_t *mac;
+    char mac_str[MAX_MAC_STRING];
 
     if(!itf || itf->node->type == SWITCH)
         return;
@@ -913,14 +939,10 @@ void print_arp_table(struct cli_def *cli, struct interface *itf)
         entry = ht->entries[index];
         if(entry.key && entry.value)
         {
-            mac = (u_int8_t *)entry.value;
-            cli_print(cli, "IP address: %s -- MAC address : %02X-%02X-%02X-%02X-%02X-%02X\n", entry.key,
-                                mac[0],
-                                mac[1],
-                                mac[2],
-                                mac[3],
-                                mac[4],
-                                mac[5]);
+            if(mac_to_string(mac_str, MAX_MAC_STRING, (u_int8_t *)entry.value))
+            {
+                cli_print(cli, "IP address: %s -- MAC address : %s\n", entry.key, mac_str);
+            }
         }
     }
     cli_print(cli, "----------------------------------\n");
